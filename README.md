@@ -86,6 +86,7 @@ cleartext, so don't make this directory public):
 -pu : postgresql username
 -pw : postgresql password
 -f  : the SQL Server structure dump file
+-i  : Generate an "ignore case" schema, using citext, to emulate MSSQL's case insensitive collation
 
 You've generated everything. Let's do the import:
 
