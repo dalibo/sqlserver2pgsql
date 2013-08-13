@@ -3,6 +3,9 @@
 # This script takes a sql server SQL schema dump, and creates a postgresql dump
 # Optionnaly, if asked, generate a kettle job to transfer all data. This is done via -k dir
 
+# Licence: GPLv3
+# Copyright Marc Cousin, Dalibo
+
 use Getopt::Long;
 use Data::Dumper;
 use Cwd;
@@ -12,38 +15,12 @@ use strict;
 
 
 
-# Global table definition structure: we need it to store all seen tables, detect which ones have LOBS (different kettle job)
+# Global objects definition structure: we need it to store all seen tables, detect which ones have LOBS (different kettle job)
 # and if their PK is a simple integer (so we can parallelize readings on these tables)
 # For now used only by kettle, but who knows
-# The structure is like this:
-# %tablestruct = {
-#           'TABLES' => {
-#                         'EmailsTrafficStat' => {
-#                                                  'haslobs' => 0,
-#                                                   'PK' => [
-#                                                             'AccountGroupId',
-#                                                             'Locale'
-#                                                  'cols' => {
-#                                                              'EmailOrigin' => {
-#                                                                                 'TYPE' => 'varchar(32)',
-#                                                                                 'POS' => 3
-#                                                                               },
-#                                                              'EmailLength' => {
-#                                                                                 'TYPE' => 'int',
-#                                                                                 'POS' => 4
-#                                                                               },
-#                                                              'EmailDate' => {
-#                                                                               'TYPE' => 'timestamp',
-#                                                                               'POS' => 1
-#                                                                             },
-#                                                              'TrafficType' => {
-#                                                                                 'TYPE' => 'int',
-#                                                                                 'POS' => 2
-#                                                                               }
-#                                                            }
-#                                                },
-# 
-my %tablestruct;
+# TODO: document this structure.
+# For now, if you have to hack, just uncomment the call to Dumper() below
+my $objects;
 
 
 my ($sd,$sh,$sp,$su,$sw,$pd,$ph,$pp,$pu,$pw);# Connection args
@@ -73,6 +50,9 @@ my %types=('int'=>'int',
 	   'numeric'=>'numeric',
 	   'decimal'=>'numeric'
 	   );
+
+# This function uses the static list above, plus domains and citext types that
+# may have been created during parsing
 sub convert_type
 {
 	my ($sqlstype,$sqlqual,$colname,$tablename,$typname)=@_;
@@ -107,7 +87,11 @@ sub convert_type
 			# Check we have a table name and a colname, or a typname
 			if (defined $colname and defined $tablename) # We are called from a CREATE TABLE, we have to add a check constraint
 			{
-				print AFTER "ALTER TABLE $tablename ADD CHECK (char_length($colname) <= $sqlqual);\n";
+				my $constraint;
+				$constraint->{TYPE}='CHECK';
+				$constraint->{TABLE}=$tablename;
+				$constraint->{TEXT}="char_length($colname) <= $sqlqual";
+				push @{$objects->{TABLES}->{$tablename}->{CONSTRAINTS}},($constraint);
 			}
 			elsif (defined $typname) # We are called from a CREATE TYPE, which will be converted to a CREATE DOMAIN
 			{
@@ -199,23 +183,23 @@ sub generate_kettle
 	{
 		mkdir ($dir) or die "Cannot create $dir, $!\n";
 	}
-	# For each table in %tablestruct, we generate a kettle file in the directory
+	# For each table in $objects, we generate a kettle file in the directory
 
-	foreach my $table (keys %{$tablestruct{TABLES}})
+	foreach my $table (keys %{$objects->{TABLES}})
 	{
 		# First, does this table have LOBs ? The template depends on this
 		my $newtemplate;
-		if ($tablestruct{TABLES}->{$table}->{haslobs})
+		if ($objects->{TABLES}->{$table}->{haslobs})
 		{
 			$newtemplate=$template_lob;
 			# Is the PK int and on only one column ?
 			# If yes, we can use several threads to read this table
-			if (scalar(@{$tablestruct{TABLES}->{$table}->{PK}})==1
+			if (defined ($objects->{TABLES}->{$table}->{PK}->{COLS}) and scalar(@{$objects->{TABLES}->{$table}->{PK}->{COLS}})==1
 			    and
-			    ($tablestruct{TABLES}->{$table}->{cols}->{($tablestruct{TABLES}->{$table}->{PK}->[0])}->{TYPE} =~ /int$/)
+			    ($objects->{TABLES}->{$table}->{COLS}->{($objects->{TABLES}->{$table}->{PK}->{COLS}->[0])}->{TYPE} =~ /int$/)
 			   )
 			{
-				my $wherefilter='WHERE ' . $tablestruct{TABLES}->{$table}->{PK}->[0]
+				my $wherefilter='WHERE ' . $objects->{TABLES}->{$table}->{PK}->[0]
 				. '% ${Internal.Step.Unique.Count} = ${Internal.Step.Unique.Number}';
 				$newtemplate =~ s/__sqlserver_where_filter__/$wherefilter/;
 				$newtemplate =~ s/__sqlserver_copies__/4/g;
@@ -258,7 +242,7 @@ sub generate_kettle
 	my $prev_node='START';
 	my $cur_vert_pos=100; # Not that useful, it's just not to be ugly if someone wanted to open
 	                      # the job with spoon (kettle's gui)
-	foreach my $table (sort {lc($a) cmp lc($b)}keys %{$tablestruct{TABLES}})
+	foreach my $table (sort {lc($a) cmp lc($b)}keys %{$objects->{TABLES}})
 	{
 		my $tmp_entry=$job_entry;
 		# We build the entries with regexp substitutions:
@@ -312,8 +296,572 @@ sub generate_kettle
 
 }
 
+# Reads the dump passed as -f
+# Generates the $object structure
+sub parse_dump
+{
+	# Open the input file or die. This first pass is to detect encoding, and open it correctly afterwards
+	my $data;
+	open IN,"<$filename" or die "Cannot open $filename, $!\n";
+	while (my $line=<IN>)
+	{
+		$data.=$line;
+	}
+	close IN;
 
+	# We now ask guess...
+	my $decoder=guess_encoding($data, qw/iso8859-15/);
+	die $decoder unless ref($decoder);
 
+	# If we got to here, it means we have found the right decoder
+	open IN,"<:encoding(".$decoder->name.")",$filename or die "Cannot open $filename, $!\n";
+
+	# Parsing loop variables
+	my $create_table=0; # Are we in a create table statement ?
+	my $table_name=''; # If yes, what's the table name ?
+	my $colnumber=0; # Column number (just to put the commas in the right places) ?
+	MAIN: while (my $line=<IN>)
+	{
+		if ($line =~ /^CREATE TABLE \[.*\]\.\[(.*)\]\(/)
+		{
+			$create_table=1;
+			$table_name=$1;
+			$colnumber=0;
+			$objects->{TABLES}->{$table_name}->{haslobs}=0;
+		}
+		elsif ($line =~ /^\t\[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/)
+		{
+			if ($create_table) # We are inside a create table, this is a column definition
+			{
+				$colnumber++;
+				my $colname=$1;
+				my $coltype=$2;
+				my $colqual=$3;
+				my $isidentity=$4;
+				my $colisnull=$5;
+				my $col=$colname;
+				if ($colqual)
+				{
+					# We need the number (or 2 numbers) in this qual
+					$colqual=~ /\((\d+(?:,\s*\d+)?)\)/ or die "Cannot parse colqual <$colqual>\n"; 
+					$colqual= "$1";
+				}
+				my $newtype=convert_type($coltype,$colqual,$colname,$table_name);
+				# If it is an identity, we'll map to serial/bigserial
+				if ($isidentity)
+				{
+					# We have an identity field. We set the default value and
+					# initialize the sequence correctly in the after script
+					$isidentity=~ /IDENTITY\((\d+),\s*(\d+)\)/ or die "Cannot understand <$isidentity>\n";
+					my $startseq=$1;
+					my $stepseq=$2;
+					my $seqname= lc("${table_name}_${colname}_seq");
+					$objects->{TABLES}->{$table_name}->{COLS}->{$colname}->{DEFAULT}= "nextval('${seqname}')";
+					$objects->{SEQUENCES}->{$seqname}->{START}=$startseq;
+					$objects->{SEQUENCES}->{$seqname}->{STEP}=$stepseq;
+					$objects->{SEQUENCES}->{$seqname}->{OWNER}=$table_name . "." . $colname;
+				}
+				$col .= " " . $newtype;
+				# If there is a bytea generated, this table will contain a blob:
+				# use a special kettle transformation for it if generating kettle
+				if ($newtype eq 'bytea' or $coltype eq 'ntext') # Ntext is very slow, stored out of page
+				{
+					$objects->{'TABLES'}->{$table_name}->{haslobs}=1;
+				}
+				$objects->{'TABLES'}->{$table_name}->{COLS}->{$colname}->{POS}=$colnumber;
+				$objects->{'TABLES'}->{$table_name}->{COLS}->{$colname}->{TYPE}=$newtype;
+
+				
+				if ($colisnull eq 'NOT NULL')
+				{
+					$objects->{'TABLES'}->{$table_name}->{COLS}->{$colname}->{NOT_NULL}=1;
+				}
+				else
+				{
+					$objects->{'TABLES'}->{$table_name}->{COLS}->{$colname}->{NOT_NULL}=0;
+				}
+			}
+			else
+			{
+				die "I don't understand $line. This is a bug\n";
+			}
+		}
+		elsif ($line =~ /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
+		{
+			die "PK defined outside a table\n: $line" unless ($create_table); # This is not forbidden by SQL, of course. I just never saw this in a sql server dump, so it should be an error for now (it will be syntaxically different if outside a table anyhow)
+			my $constraint; # We put everything inside this hashref, we'll push it into the constraint list later
+			$constraint->{TYPE}='PK';
+			if (defined $1)
+			{
+				$constraint->{NAME}=$1;
+			}
+
+			# Here is the PK. We read the following lines until the end of the constraint
+			while (my $pk=<IN>)
+			{
+				# Exit when read a line beginning with ). The constraint is complete. We store it and go back to main loop
+				if ($pk =~ /^\)/)
+				{
+					push @{$objects->{TABLES}->{$table_name}->{CONSTRAINTS}},($constraint);
+					# We also directly put the constraint reference in a direct path (for ease of use in generate_kettle)
+					$objects->{TABLES}->{$table_name}->{PK}=$constraint;
+					next MAIN;
+				}
+				if ($pk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
+				{
+					push @{$constraint->{COLS}},($1);
+				}
+			}
+		}
+		elsif ($line =~ /^\s*(?:CONSTRAINT \[(.*)\] )?UNIQUE/)
+		{
+			my $constraint; # We put everything inside this hashref, we'll push it into the constraint list later
+			$constraint->{TYPE}='UNIQUE';
+			if (defined $1)
+			{
+				$constraint->{NAME}=$1;
+			}
+			# Unique key definition. We read following lines until the end of the constraint
+			while (my $uk=<IN>)
+			{
+				# Exit when read a line beginning with ). The constraint is complete
+				if ($uk =~ /^\)/)
+				{
+					push @{$objects->{'TABLES'}->{$table_name}->{CONSTRAINTS}},($constraint);
+					next MAIN;
+				}
+				if ($uk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
+				{
+					push @{$constraint->{COLS}},($1);
+				}
+			}
+
+		}
+		# Ignore USE, GO, and things that have no meaning for postgresql
+		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER ON|^SET ANSI_PADDING|CHECK CONSTRAINT/)
+		{
+			next;
+		}
+		# Don't know what it is. If you have an idea, and it is worth converting, tell me :)
+		elsif ($line =~ /^EXEC .*bindrule/)
+		{
+			next;
+		}
+		# Ignore users and roles. Security models will probably be very different between the two databases
+		elsif ($line =~ /^CREATE (ROLE|USER)/)
+		{
+			next;
+		}
+		elsif ($line =~ /^CREATE TYPE \[.*?\]\.\[(.*?)\] FROM \[(.*?)](?:\((\d+(?:,\s*\d+)?)?\))?/)
+		{
+			# Dependancy between types is not done for now. If the problem arises, it will be added
+			my $newtype=convert_type($2,$3,undef,undef,$1);
+			$objects->{DOMAINS}->{$1}=$newtype;
+			# We add them to known data types, as they probably will be used in table definitions
+			$types{$1}=$1;
+		}
+		elsif ($line =~ /^\) ON \[PRIMARY\]/)
+		{
+			# End of the table
+			$create_table=0;
+			$table_name='';
+		}
+		elsif ($line =~ /^CREATE (UNIQUE )?NONCLUSTERED INDEX \[(.*)\] ON \[.*\]\.\[(.*)\]/)
+		{
+			# Index creation. Index are namespaced per table in SQL Server, not in PostgreSQL
+			my $idxname=$2;
+			my $tablename=$3;
+			if ($1)
+			{
+				$objects->{TABLES}->{$tablename}->{INDEXES}->{$idxname}->{UNIQUE}=1;
+			}
+			else
+			{
+				$objects->{TABLES}->{$tablename}->{INDEXES}->{$idxname}->{UNIQUE}=0;
+			}
+			while (my $idx=<IN>)
+			{
+				# Exit when read a line beginning with ). The index is complete
+				if ($idx =~ /^\)/)
+				{
+					next MAIN;
+				}
+				next if ($idx =~ /^\(/); # Begin of the columns declaration
+				if ($idx =~ /\t\[(.*)\] (ASC|DESC)(,)?/)
+				{
+					if (defined $2)
+					{
+						push @{$objects->{TABLES}->{$tablename}->{INDEXES}->{$idxname}->{COLS}}, ("$1 $2");
+					}
+					else
+					{
+						push @{$objects->{TABLES}->{$tablename}->{INDEXES}->{$idxname}->{COLS}}, ("$1");
+					}
+				}
+			}
+		}
+		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(((?:-)?\d+)\)\) FOR \[(.*)\]/)
+		{
+			$objects->{TABLES}->{$1}->{COLS}->{$3}->{DEFAULT}=$2;
+			# Default value, for a numeric (yes sql server puts it in another pair of parenthesis, don't know why)
+		}
+		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \('(.*)'\) FOR \[(.*)\]/)
+		{
+			# Default text value, text, between commas
+			$objects->{TABLES}->{$1}->{COLS}->{$3}->{DEFAULT}="'$2'";
+		}
+		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((\d)\) FOR \[(.*)\]/)
+		{
+			# Weird one: for bit type, there is no supplementary parenthesis... for now, let's say this is a bit type, and
+			# convert to true/false
+			if ($2 eq '0')
+			{
+				$objects->{TABLES}->{$1}->{COLS}->{$3}->{DEFAULT}='false';
+			}
+			elsif ($2 eq '1')
+			{
+				$objects->{TABLES}->{$1}->{COLS}->{$3}->{DEFAULT}='true';
+			}
+			else
+			{
+				die "not expected for a boolean: $line $. This is a bug\n"; # Get an error if the true/false hypothesis is wrong
+			}
+		}
+		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD\s+CONSTRAINT \[(.*)\] FOREIGN KEY\((.*?)\)/)
+		{
+			# This is a FK definition. We have the foreign table definition in next line.
+			my $constraint;
+			my $table=$1;
+			$constraint->{TYPE}='FK';
+			$constraint->{LOCAL_COLS}=$3;
+			$constraint->{LOCAL_TABLE}=$1;
+			$constraint->{LOCAL_COLS} =~ s/\[|\]//g; # Remove brackets
+			while (my $fk = <IN>)
+			{
+				if ($fk =~ /^GO/)
+				{
+					push @{$objects->{'TABLES'}->{$table}->{CONSTRAINTS}},($constraint);
+					next MAIN;
+				}
+				elsif ($fk =~ /^REFERENCES \[.*\]\.\[(.*)\] \((.*?)\)/)
+				{
+					$constraint->{REMOTE_COLS}=$2;
+					$constraint->{REMOTE_TABLE}=$1;
+					$constraint->{REMOTE_COLS} =~ s/\[|\]//g; # Get rid of square brackets
+				}
+				elsif ($fk =~ /^ON DELETE CASCADE\s*$/)
+				{
+					$constraint->{ON_DEL_CASC}=1;
+				}
+				else
+				{
+					die "Cannot parse $fk $., in a FK. This is a bug\n";
+				}
+			}
+		}
+		elsif ($line =~ /ALTER TABLE \[.*\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD  CONSTRAINT \[(.*)\] CHECK  ((.*))/ )
+		{
+			# Check constraint. We'll do what we can
+			my $constraint;
+			$constraint->{TABLE}=$1;
+			$constraint->{NAME}=$2;
+			$constraint->{TYPE}='CHECK';
+			my $table=$1;
+			my $constxt=$3;
+			$constxt =~ s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
+			$constraint->{TEXT}=$constxt;
+			push @{$objects->{'TABLES'}->{$table}->{CONSTRAINTS}},($constraint);
+		}
+		elsif ($line =~ /^EXEC sys.sp_addextendedproperty/)
+		{ 
+			# These are comments on objets. They can be multiline, so aggregate everything 
+			# Until next GO command
+			my $sqlcomment=$line;
+			while (my $inline=<IN>)
+			{
+				last if ($inline =~ /^GO/);
+				$sqlcomment.=$inline
+			}
+			# Remove CR character... no place here
+			$sqlcomment =~ s/\r//g;
+			# We have all the comment. Let's parse it.
+			# Spaces are mostly random it seems, in SQL Server's dump code. So \s* everywhere :(
+			# There can be quotes inside a string. So (?<!')' matches only a ' not preceded by a '.
+			$sqlcomment =~ /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s;
+			my ($comment,$obj,$objname,$subobj,$subobjname)=($2,$5,$6,$7,$8);
+			if ($obj eq 'TABLE' and not defined $subobj)
+			{
+				$objects->{TABLES}->{$objname}->{COMMENT}=$comment;
+			}
+			elsif ($obj eq 'TABLE' and $subobj eq 'COLUMN')
+			{
+				$objects->{TABLES}->{$objname}->{COLS}->{$subobjname}->{COMMENT}=$comment;
+			}
+			else
+			{
+				die "Cannot understand this comment: $sqlcomment\n";
+			}
+		}
+		else
+		{
+			die "Line <$line> ($.) not understood. This is a bug\n";
+		}
+	}
+	close IN;
+}
+
+# Creates the SQL scripts from $object
+sub generate_schema
+{
+	my ($before_file,$after_file)=@_;
+	# Open the output files (except kettle, we'll do that at the end)
+	open BEFORE,">:utf8",$before_file or die "Cannot open $before_file, $!\n";
+	open AFTER,">:utf8",$after_file or die "Cannot open $after_file, $!\n";
+	print BEFORE "\\set ON_ERROR_STOP\n";
+	print BEFORE "BEGIN;\n";
+	print AFTER "\\set ON_ERROR_STOP\n";
+	print AFTER "BEGIN;\n";
+
+	# Are we case insensitive ? We have to install citext then
+	if ($case_insensitive)
+	{
+		print BEFORE "CREATE EXTENSION citext;\n";
+	}
+
+	# Ok, we have parsed everything, and definitions are in $objects
+	# We will put in the BEFORE file only table and columns definitions. 
+	# The rest will go in the AFTER script (check constraints, put default values, etc...)
+
+	# The user-defined types (domains, etc)
+	foreach my $domain (keys %{$objects->{DOMAINS}})
+	{
+		print BEFORE "CREATE DOMAIN $domain " . $objects->{DOMAINS}->{$domain} . ";\n";
+	}
+
+	print BEFORE "\n"; # We change sections in the dump file
+
+	# The tables
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		my @colsdef;
+		foreach my $col (sort  { $objects->{TABLES}->{$table}->{COLS}->{$a}->{POS} 
+					  <=> 
+					 $objects->{TABLES}->{$table}->{COLS}->{$b}->{POS}
+				       } (keys %{$objects->{TABLES}->{$table}->{COLS}}) )
+			
+		{
+			my $colref=$objects->{TABLES}->{$table}->{COLS}->{$col};
+			my $coldef=$col . " " . $colref->{TYPE};
+			if ($colref->{NOT_NULL})
+			{
+				$coldef .= ' NOT NULL';
+			}
+			push @colsdef,($coldef);
+		}
+		print BEFORE "CREATE TABLE $table ( \n\t" . join (",\n\t",@colsdef) . ");\n\n";
+	}
+
+	# We now add all "AFTER" objects
+	# We start with SEQUENCES, PKs and INDEXES (will be needed for FK)
+
+	foreach my $sequence (keys %{$objects->{SEQUENCES}})
+	{
+		my $seqref=$objects->{SEQUENCES}->{$sequence};
+		print AFTER "CREATE SEQUENCE $sequence INCREMENT BY " . $seqref->{STEP} 
+			     . " START WITH " . $seqref->{START} 
+			     . " OWNED BY " . $seqref->{OWNER} . ";\n";
+	}
+
+	# Now PK. We have to go through all tables
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		my $refpk= $objects->{TABLES}->{$table}->{PK};
+		# Warn if no PK!
+		if (not defined $refpk)
+		{
+			# Don't know if it should be displayed
+			#print STDERR "Warning: $table has no primary key.\n"; 
+			next;
+		}
+		my $pkdef= "ALTER TABLE $table ADD";
+		if (defined $refpk->{NAME})
+		{
+			$pkdef .= " CONSTRAINT " . $refpk->{NAME};
+		}
+		$pkdef .= " PRIMARY KEY (" . join (',',@{$refpk->{COLS}}) . ");\n";
+		print AFTER $pkdef;
+	}
+
+	# Now The UNIQUE constraints. They may be used for FK (if columns are not null)
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		foreach my $constraint (@{$objects->{TABLES}->{$table}->{CONSTRAINTS}})
+		{
+			next unless ($constraint->{TYPE} eq 'UNIQUE');
+			my $consdef= "ALTER TABLE $table ADD";
+			if (defined $constraint->{NAME})
+			{
+				$consdef.= " CONSTRAINT " . $constraint->{NAME};
+			}
+			$consdef.= " UNIQUE (" . join (",",@{$constraint->{COLS}}) . ");\n";
+			print AFTER $consdef;
+		}
+	}
+
+	# We have all we need for FKs now. We can put all other constraints (except PK of course)
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		foreach my $constraint (@{$objects->{TABLES}->{$table}->{CONSTRAINTS}})
+		{
+			next if ($constraint->{TYPE} =~ /^UNIQUE|PK$/);
+			my $consdef= "ALTER TABLE $table ADD";
+			if (defined $constraint->{NAME})
+			{
+				$consdef.= " CONSTRAINT " . $constraint->{NAME};
+			}
+			if ($constraint->{TYPE} eq 'FK') # COLS are already a comma separated list
+			{
+				$consdef.= " FOREIGN KEY (" . $constraint->{LOCAL_COLS} . ")" .
+					   " REFERENCES " . $constraint->{REMOTE_TABLE} .
+					   " ( " . $constraint->{REMOTE_COLS} . ")";
+				if (defined $constraint->{ON_DEL_CASC} and $constraint->{ON_DEL_CASC})
+				{
+					$consdef.= " ON DELETE CASCADE";
+				}
+				$consdef.=  ";\n";
+			}
+			elsif ($constraint->{TYPE} eq 'CHECK')
+			{
+				$consdef.= " CHECK (" . $constraint->{TEXT} . ");\n";
+			}
+			else
+			{
+				# Shouldn't get there. it would mean I have forgotten a type of constraint
+				die "I couldn't translate a constraint. This is a bug\n";
+			}
+			print AFTER $consdef;
+		}
+	}
+
+	# Indexes
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		foreach my $index (keys %{$objects->{TABLES}->{$table}->{INDEXES}})
+		{
+			my $idxref=$objects->{TABLES}->{$table}->{INDEXES}->{$index};
+			my $idxdef="CREATE";
+			if ($idxref->{UNIQUE})
+			{
+				$idxdef.=" UNIQUE";
+			}
+			$idxdef.= " INDEX $index ON $table ("  .
+				  join(",",@{$idxref->{COLS}}) .
+				  ");\n";
+			print AFTER $idxdef;
+		}
+	}
+
+	# Default values
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		foreach my $col (keys %{$objects->{TABLES}->{$table}->{COLS}})
+		{
+			my $colref=$objects->{TABLES}->{$table}->{COLS}->{$col};
+			next unless (defined $colref->{DEFAULT});
+			print AFTER "ALTER TABLE $table ALTER COLUMN $col SET DEFAULT " . $colref->{DEFAULT} . ";\n";
+		}
+	}
+
+	# Comments
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		if (defined ($objects->{TABLES}->{$table}->{COMMENT}))
+		{
+			print AFTER "COMMENT ON TABLE $table IS '" .
+				    $objects->{TABLES}->{$table}->{COMMENT} .
+				    "';\n";
+		}
+		foreach my $col (keys %{$objects->{TABLES}->{$table}->{COLS}})
+		{
+			my $colref=$objects->{TABLES}->{$table}->{COLS}->{$col};
+			if (defined ($colref->{COMMENT}))
+			{
+				print AFTER "COMMENT ON COLUMN $table.$col IS '" .
+					    $colref->{COMMENT} . "';\n";
+			}
+		}
+	}
+
+	print BEFORE "COMMIT;\n";
+	print AFTER "COMMIT;\n";
+	close BEFORE;
+	close AFTER;
+
+}
+
+# This sub tries to avoid naming conflicts:
+# Under PostgreSQL, types, tables and indexes share the same namespace
+# As the table name is the only one used directly, types and indexes will be renamed
+sub resolve_name_conflicts
+{
+	my %known_names;
+	# Store all known names
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		$known_names{$table}=1;
+	}
+	# We scan all types. For now, this tool only generates domains, so we scan domains
+	foreach my $domain (keys %{$objects->{DOMAINS}})
+	{
+		if (not defined ($known_names{$domain}))
+		{
+			# Great. Just skip to the next and remember this name
+			$known_names{$domain}=1;
+		}
+		else
+		{
+			# We rename
+			$objects->{DOMAINS}->{$domain."2pgd"} = $objects->{DOMAINS}->{$domain};
+			delete $objects->{DOMAINS}->{$domain};
+			print STDERR "Warning: I had to rename domain $domain to ${domain}2pgd because of naming conflicts\n";
+			# I also have to check all cols type to rename this
+			foreach my $table (values %{$objects->{TABLES}})
+			{
+				foreach my $col (values %{$table->{COLS}})
+				{
+					if ($col->{TYPE} eq $domain)
+					{
+						$col->{TYPE} = $domain . "2pgd";
+					}
+				}
+			}
+		}
+
+	}
+
+	# Then we scan all indexes
+	foreach my $table (keys %{$objects->{TABLES}})
+	{
+		foreach my $idx (keys %{$objects->{TABLES}->{$table}->{INDEXES}})
+		{
+			if (not defined ($known_names{$idx}))
+			{
+				# Great. Just skip to the next and remember this name
+				$known_names{$idx}=1;
+			}
+			else
+			{
+				# We have to rename :/
+				# Postfix with a 2pg
+				# We have to update the name in the $objects hash
+				$objects->{TABLES}->{$table}->{INDEXES}->{"$idx"."2pgi"}=$objects->{TABLES}->{$table}->{INDEXES}->{$idx};
+				delete $objects->{TABLES}->{$table}->{INDEXES}->{$idx};
+				print STDERR "Warning: I had to rename index $table.$idx to ${idx}2pgi because of naming conflicts\n";
+				$known_names{$idx . "2pgi"}=1;
+			}
+		}
+	}
+}
 
 # Parse command line
 my $kettle=0;
@@ -351,326 +899,13 @@ if ($kettle and (not $sd or not $sh or not $sp or not $su or not $sw or not $pd 
 	exit 1;
 }
 
-# Open the input file or die. This first pass is to detect encoding, and open it correctly afterwards
-my $data;
-open IN,"<$filename" or die "Cannot open $filename, $!\n";
-while (my $line=<IN>)
-{
-	$data.=$line;
-}
-close IN;
+parse_dump();
+#print Dumper($objects);
 
-# We now ask guess...
-my $decoder=guess_encoding($data, qw/iso8859-15/);
-die $decoder unless ref($decoder);
+resolve_name_conflicts();
 
-# If we got to here, it means we have found the right decoder
-open IN,"<:encoding(".$decoder->name.")",$filename or die "Cannot open $filename, $!\n";
+generate_schema($before_file, $after_file);
 
-# Open the output files (except kettle, we'll do that at the end)
-open BEFORE,">:utf8",$before_file or die "Cannot open $before_file, $!\n";
-open AFTER,">:utf8",$after_file or die "Cannot open $after_file, $!\n";
-
-# Parsing loop variables
-my $create_table=0; # Are we in a create table statement ?
-my $table_name=''; # If yes, what's the table name ?
-my $colnumber=0; # Column number (just to put the commas in the right places) ?
-
-print BEFORE "\\set ON_ERROR_STOP\n";
-print BEFORE "BEGIN;\n";
-print AFTER "\\set ON_ERROR_STOP\n";
-print AFTER "BEGIN;\n";
-
-# Are we case insensitive ? We have to install citext then
-if ($case_insensitive)
-{
-	print BEFORE "CREATE EXTENSION citext;\n";
-}
-
-MAIN: while (my $line=<IN>)
-{
-	if ($line =~ /^CREATE TABLE \[.*\]\.\[(.*)\]\(/)
-	{
-		$create_table=1;
-		$table_name=$1;
-		$colnumber=0;
-		print BEFORE "CREATE TABLE $table_name (\n";
-		$tablestruct{'TABLES'}->{$table_name}->{haslobs}=0;
-	}
-	elsif ($line =~ /^\t\[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/)
-	{
-		if ($create_table) # We are inside a create table, this is a column definition
-		{
-			$colnumber++;
-			my $colname=$1;
-			my $coltype=$2;
-			my $colqual=$3;
-			my $isidentity=$4;
-			my $colisnull=$5;
-			my $col=$colname;
-			if ($colqual)
-			{
-				# We need the number (or 2 numbers) in this qual
-				$colqual=~ /\((\d+(?:,\s*\d+)?)\)/ or die "Cannot parse colqual <$colqual>\n"; 
-				$colqual= "$1";
-			}
-			my $newtype=convert_type($coltype,$colqual,$colname,$table_name);
-			# If it is an identity, we'll map to serial/bigserial
-			if ($isidentity)
-			{
-				# We have an identity field. We set the default value and
-				# initialize the sequence correctly in the after script
-				$isidentity=~ /IDENTITY\((\d+),\s*(\d+)\)/ or die "Cannot understand <$isidentity>\n";
-				my $startseq=$1;
-				my $stepseq=$2;
-				print AFTER "CREATE SEQUENCE ".lc("${table_name}_${colname}_seq")." INCREMENT BY $stepseq START WITH $startseq OWNED BY ${table_name}.${colname};\n";
-				print AFTER "ALTER TABLE ${table_name} ALTER COLUMN $colname SET DEFAULT nextval('".lc("${table_name}_${colname}_seq")."');\n";
-
-			}
-			$col .= " " . $newtype;
-			# If there is a bytea generated, this table will contain a blob:
-			# use a special kettle transformation for it if generating kettle
-			if ($newtype eq 'bytea' or $coltype eq 'ntext') # Ntext is very slow, stored out of page
-			{
-				$tablestruct{'TABLES'}->{$table_name}->{haslobs}=1;
-			}
-			# We store the datatype for each table in the global hash. Will be needed by kettle
-			$tablestruct{'TABLES'}->{$table_name}->{cols}->{$colname}->{POS}=$colnumber;
-			$tablestruct{'TABLES'}->{$table_name}->{cols}->{$colname}->{TYPE}=$newtype;
-
-			
-			if ($colisnull eq 'NOT NULL')
-			{
-				$col .= " NOT NULL";
-			}
-			if ($colnumber>1)
-			{
-				print BEFORE ",";
-			}
-			print BEFORE $col,"\n";
-		}
-		else
-		{
-			die "I don't understand $line. This is a bug\n";
-		}
-	}
-	elsif ($line =~ /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
-	{
-		die "PK defined outside a table\n: $line" unless ($create_table); # This is not forbidden by SQL, of course. I just never saw this in a sql server dump, so it should be an error for now (it will be syntaxically different if outside a table anyhow)
-		if (defined $1)
-		{
-			print AFTER "ALTER TABLE $table_name ADD CONSTRAINT $1 PRIMARY KEY ( ";
-		}
-		else
-		{
-			print AFTER "ALTER TABLE $table_name ADD PRIMARY KEY ( ";
-		}
-
-		# Here is the PK. We read following lines until the end of the constraint
-		while (my $pk=<IN>)
-		{
-			# Exit when read a line beginning with ). The constraint is complete
-			if ($pk =~ /^\)/)
-			{
-				print AFTER ");\n";
-				next MAIN;
-			}
-			if ($pk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
-			{
-				print AFTER "$1 $3"; # PG doesn't have ASC/DESC in the PK definition, it seems
-				push (@{$tablestruct{'TABLES'}->{$table_name}->{PK}},($1));
-			}
-		}
-	}
-	elsif ($line =~ /^\s*(?:CONSTRAINT \[(.*)\] )?UNIQUE/)
-	{
-		if (defined $1)
-		{
-			print AFTER "ALTER TABLE $table_name ADD CONSTRAINT $1 UNIQUE (";
-		}
-		else
-		{
-			print AFTER "ALTER TABLE $table_name ADD UNIQUE (";
-		}
-		# Unique key definition. We read following lines until the end of the constraint
-		while (my $uk=<IN>)
-		{
-			# Exit when read a line beginning with ). The constraint is complete
-			if ($uk =~ /^\)/)
-			{
-				print AFTER ");";
-				next MAIN;
-			}
-			if ($uk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
-			{
-				print AFTER "$1 $3"; # No ASC/DESC in UNIQUE constraint either
-			}
-		}
-
-	}
-	# Ignore USE, GO, and things that have no meaning for postgresql
-	elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER ON|^SET ANSI_PADDING|CHECK CONSTRAINT/)
-	{
-		next;
-	}
-	# Don't know what it is. If you have an idea, and it is worth converting, tell me :)
-	elsif ($line =~ /^EXEC .*bindrule/)
-	{
-		next;
-	}
-	# Ignore users and roles
-	elsif ($line =~ /^CREATE (ROLE|USER)/)
-	{
-		next;
-	}
-	elsif ($line =~ /^CREATE TYPE \[.*?\]\.\[(.*?)\] FROM \[(.*?)](?:\((\d+(?:,\s*\d+)?)?\))?/)
-	{
-		my $newtype=convert_type($2,$3,undef,undef,$1);
-		print BEFORE "CREATE DOMAIN $1 $newtype;\n";
-		# We add them to known data types, as they probably will be used
-		$types{$1}=$1;
-	}
-	elsif ($line =~ /^\) ON \[PRIMARY\]/)
-	{
-		# Fin de la table
-		print BEFORE ");\n";
-		$create_table=0;
-		$table_name='';
-	}
-	elsif ($line =~ /^CREATE (UNIQUE )?NONCLUSTERED INDEX \[(.*)\] ON \[.*\]\.\[(.*)\]/)
-	{
-		# Creation d'index
-		no warnings;
-		print AFTER "CREATE $1INDEX $2 ON $3 (";
-		use warnings;
-		while (my $idx=<IN>)
-		{
-			# Exit when read a line beginning with ). The index is complete
-			if ($idx =~ /^\)/)
-			{
-				print AFTER ");\n";
-				next MAIN;
-			}
-			next if ($idx =~ /^\(/); # Begin of the columns declaration
-			if ($idx =~ /\t\[(.*)\] (ASC|DESC)(,)?/)
-			{
-				no warnings;
-				print AFTER "$1 $2 $3";
-				use warnings;
-			}
-		}
-	}
-	elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(((?:-)?\d+)\)\) FOR \[(.*)\]/)
-	{
-		# Default value, for a numeric (yes sql server puts it in another pair of parenthesis, don't know why)
-		print AFTER "ALTER TABLE $1 ALTER COLUMN $3 SET DEFAULT $2;\n";
-	}
-	elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \('(.*)'\) FOR \[(.*)\]/)
-	{
-		# Default text value, text, between commas
-		print AFTER "ALTER TABLE $1 ALTER COLUMN $3 SET DEFAULT '$2';\n";
-	}
-	elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((\d)\) FOR \[(.*)\]/)
-	{
-		# Weird one: for bit type, there is no supplementary parenthesis... for now, let's say this is a bit type, and
-		# convert to true/false
-		if ($2 eq '0')
-		{
-			print AFTER "ALTER TABLE $1 ALTER COLUMN $3 SET DEFAULT false;\n";
-		}
-		elsif ($2 eq '1')
-		{
-			print AFTER "ALTER TABLE $1 ALTER COLUMN $3 SET DEFAULT true;\n";
-		}
-		else
-		{
-			die "not expected for a boolean: $line $. This is a bug\n"; # Get an error if the true/false hypothesis is wrong
-		}
-	}
-	elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD\s+CONSTRAINT \[(.*)\] FOREIGN KEY\((.*?)\)/)
-	{
-		# This is a FK definition. We have the foreign table definition in next line.
-		my $normalized_columns=$3;
-		my $table=$1;
-		my $constraint=$2;
-		$normalized_columns=~ s/\[|\]//g; # Suppression des crochets
-		print AFTER "ALTER TABLE $table ADD CONSTRAINT $constraint FOREIGN KEY ($normalized_columns) ";
-		while (my $fk = <IN>)
-		{
-			if ($fk =~ /^GO/)
-			{
-				print AFTER ";\n";
-				next MAIN;
-			}
-			elsif ($fk =~ /^REFERENCES \[.*\]\.\[(.*)\] \((.*?)\)/)
-			{
-				$normalized_columns=$2;
-				$table=$1;
-				$normalized_columns=~ s/\[|\]//g; # Get rid of square brackets
-				print AFTER "REFERENCES $table ($normalized_columns)";
-			}
-			elsif ($fk =~ /^ON DELETE CASCADE\s*$/)
-			{
-				print AFTER "ON DELETE CASCADE ";
-			}
-			else
-			{
-				die "Cannot parse $fk $., in a FK. This is a bug\n";
-			}
-		}
-	}
-	elsif ($line =~ /ALTER TABLE \[.*\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD  CONSTRAINT \[(.*)\] CHECK  ((.*))/ )
-	{
-		# Check constraint. We'll do what we can
-		my $table=$1;
-		my $consname=$2;
-		my $constxt=$3;
-		$constxt =~ s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
-		print AFTER "ALTER TABLE $table ADD CONSTRAINT $consname CHECK ($constxt);\n";
-	}
-	elsif ($line =~ /^EXEC sys.sp_addextendedproperty/)
-	{ 
-		# These are comments on objets. They can be multiline, so aggregate everything 
-		# Until next GO command
-		my $sqlcomment=$line;
-		while (my $inline=<IN>)
-		{
-			last if ($inline =~ /^GO/);
-			$sqlcomment.=$inline
-		}
-		# Remove CR character... no place here
-		$sqlcomment =~ s/\r//g;
-		# We have all the comment. Let's parse it.
-		# Spaces are mostly random it seems, in SQL Server's dump code. So \s* everywhere :(
-		# There can be quotes inside a string. So (?<!')' matches only a ' not preceded by a '.
-		$sqlcomment =~ /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s;
-		my ($comment,$obj,$objname,$subobj,$subobjname)=($2,$5,$6,$7,$8);
-		if ($obj eq 'TABLE' and not defined $subobj)
-		{
-			print AFTER "COMMENT ON TABLE $objname IS '$comment';\n";
-		}
-		elsif ($obj eq 'TABLE' and $subobj eq 'COLUMN')
-		{
-			print AFTER "COMMENT ON COLUMN $objname.$subobjname IS '$comment';\n";
-		}
-		else
-		{
-			die "Cannot understand this comment: $sqlcomment\n";
-		}
-	}
-	else
-	{
-		die "Line <$line> ($.) not understood. This is a bug\n";
-	}
-}
-
-print BEFORE "COMMIT;\n";
-print AFTER "COMMIT;\n";
-close BEFORE;
-close AFTER;
-close IN;
-
-#print Dumper(\%tablestruct);
 
 if ( $kettle and (defined $ENV{'HOME'} or defined $ENV{'USERPROFILE'} ) )
 {
