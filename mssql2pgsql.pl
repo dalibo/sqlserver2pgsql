@@ -2,6 +2,10 @@
 
 # This script takes a sql server SQL schema dump, and creates a postgresql dump
 # Optionnaly, if asked, generate a kettle job to transfer all data. This is done via -k dir
+# Details in the README file
+
+# This program is made to die on all error conditions: if there is something not understood in
+# a dump, it has to be added, or manually ignored (in order to improve this program rapidly)
 
 # Licence: GPLv3
 # Copyright Marc Cousin, Dalibo
@@ -15,23 +19,25 @@ use strict;
 
 
 
-# Global objects definition structure: we need it to store all seen tables, detect which ones have LOBS (different kettle job)
-# and if their PK is a simple integer (so we can parallelize readings on these tables)
-# For now used only by kettle, but who knows
-# TODO: document this structure.
-# For now, if you have to hack, just uncomment the call to Dumper() below
+# Global objects definition structure: we need it to store all seen tables, detect which ones have LOBS 
+# and if their PK is a simple integer (so we can parallelize readings on these tables in a special
+# kettle transformation)
+
+# $objects will contain the parsed structure of the SQL Server dump
+# If you have to hack and want to understand its structure, just uncomment the call to Dumper() in the code
 my $objects;
 
 
 my ($sd,$sh,$sp,$su,$sw,$pd,$ph,$pp,$pu,$pw);# Connection args
 my $filename;# Filename passed as arg
-my $case_insensitive=0; # Passed as arg: was SQL Server installation case insensitive
+my $case_insensitive=0; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
+			# If yes, we will generate citext with CHECK constraints...
 
-my $template;     # These two variables are loaded in the BEGIN block at the end (they are very big, putting them there
-my $template_lob; # won't pollute the code as much)
+my $template;     # These two variables are loaded in the BEGIN block at the end of this file (they are very big
+my $template_lob; # putting them there won't pollute the code as much)
 
 my ($job_header,$job_middle,$job_footer); # These are used to create the static parts of the job
-my ($job_entry,$job_hop); # These are used to create the dynamic parts of the job
+my ($job_entry,$job_hop); # These are used to create the dynamic parts of the job (XML file)
 
 
 my %types=('int'=>'int',
@@ -52,7 +58,7 @@ my %types=('int'=>'int',
 	   );
 
 # This function uses the static list above, plus domains and citext types that
-# may have been created during parsing
+# may have been created during parsing, to convert mssql's types to pgsql's
 sub convert_type
 {
 	my ($sqlstype,$sqlqual,$colname,$tablename,$typname)=@_;
@@ -76,12 +82,12 @@ sub convert_type
 	{
 		$rettype= "text";
 	}
-	die "Cannot determine the PostgreSQL's datatype corresponding to $sqlstype\n" unless $rettype;
+	die "Cannot determine the PostgreSQL's datatype corresponding to $sqlstype. This is a bug\n" unless $rettype;
 	# We special case when type is varchar, to be case insensitive
 	if ($sqlstype =~ /text|varchar/ and $case_insensitive)
 	{
 		$rettype="citext";
-		# Do we have a SQL Qual ? (we'll have to do check constraints then)
+		# Do we have a SQL qualifier ? (we'll have to do check constraints then)
 		if ($sqlqual)
 		{
 			# Check we have a table name and a colname, or a typname
@@ -171,10 +177,10 @@ sub usage
 	print "-pp: postgresql port\n";
 	print "-pu: postgresql username\n";
 	print "-pw: postgresql password\n";
-
 }
 
-# This function generates kettle transformations, and a kettle job, for all tables
+# This function generates kettle transformations, and a kettle job running all these
+# transformations sequentially, for all the tables in sql server's dump
 sub generate_kettle
 {
 	my ($dir)=@_;
@@ -193,7 +199,8 @@ sub generate_kettle
 		{
 			$newtemplate=$template_lob;
 			# Is the PK int and on only one column ?
-			# If yes, we can use several threads to read this table
+			# If yes, we can use several threads in kettle to read this table to
+			# improve performance
 			if (defined ($objects->{TABLES}->{$table}->{PK}->{COLS}) and scalar(@{$objects->{TABLES}->{$table}->{PK}->{COLS}})==1
 			    and
 			    ($objects->{TABLES}->{$table}->{COLS}->{($objects->{TABLES}->{$table}->{PK}->{COLS}->[0])}->{TYPE} =~ /int$/)
@@ -205,7 +212,7 @@ sub generate_kettle
 				$newtemplate =~ s/__sqlserver_copies__/4/g;
 			}
 			else
-			# No way to do this optimization
+			# No way to do this optimization. Use standard template
 			{
 				$newtemplate =~ s/__sqlserver_where_filter__//;
 				$newtemplate =~ s/__sqlserver_copies__/1/g
@@ -242,6 +249,8 @@ sub generate_kettle
 	my $prev_node='START';
 	my $cur_vert_pos=100; # Not that useful, it's just not to be ugly if someone wanted to open
 	                      # the job with spoon (kettle's gui)
+	# We sort only so that it will be easier to find a transformation in the job if one needed to
+	# edit it. It's also easier to track progress if tables are sorted alphabetically
 	foreach my $table (sort {lc($a) cmp lc($b)}keys %{$objects->{TABLES}})
 	{
 		my $tmp_entry=$job_entry;
@@ -320,15 +329,18 @@ sub parse_dump
 	my $create_table=0; # Are we in a create table statement ?
 	my $table_name=''; # If yes, what's the table name ?
 	my $colnumber=0; # Column number (just to put the commas in the right places) ?
+	# Tagged because sql statements are often multi-line, so there are inner loops in some conditions
 	MAIN: while (my $line=<IN>)
 	{
+		# Create table, obviously. There will be other lines below for the rest of the table definition
 		if ($line =~ /^CREATE TABLE \[.*\]\.\[(.*)\]\(/)
 		{
-			$create_table=1;
+			$create_table=1; # We are now inside a create table
 			$table_name=$1;
 			$colnumber=0;
 			$objects->{TABLES}->{$table_name}->{haslobs}=0;
 		}
+		# Here is a col definition. We should be inside a create table
 		elsif ($line =~ /^\t\[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/)
 		{
 			if ($create_table) # We are inside a create table, this is a column definition
@@ -347,10 +359,11 @@ sub parse_dump
 					$colqual= "$1";
 				}
 				my $newtype=convert_type($coltype,$colqual,$colname,$table_name);
-				# If it is an identity, we'll map to serial/bigserial
+				# If it is an identity, we'll map to serial/bigserial (create a sequence, then link it
+				# to the column)
 				if ($isidentity)
 				{
-					# We have an identity field. We set the default value and
+					# We have an identity field. We remember the default value and
 					# initialize the sequence correctly in the after script
 					$isidentity=~ /IDENTITY\((\d+),\s*(\d+)\)/ or die "Cannot understand <$isidentity>\n";
 					my $startseq=$1;
@@ -364,6 +377,7 @@ sub parse_dump
 				$col .= " " . $newtype;
 				# If there is a bytea generated, this table will contain a blob:
 				# use a special kettle transformation for it if generating kettle
+				# (see generate_kettle() )
 				if ($newtype eq 'bytea' or $coltype eq 'ntext') # Ntext is very slow, stored out of page
 				{
 					$objects->{'TABLES'}->{$table_name}->{haslobs}=1;
@@ -388,7 +402,10 @@ sub parse_dump
 		}
 		elsif ($line =~ /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
 		{
-			die "PK defined outside a table\n: $line" unless ($create_table); # This is not forbidden by SQL, of course. I just never saw this in a sql server dump, so it should be an error for now (it will be syntaxically different if outside a table anyhow)
+			# This is not forbidden by SQL, of course. I just never saw this in a sql server dump,
+			# so it should be an error for now (it will be syntaxically different if outside a table anyhow)
+			die "PK defined outside a table\n: $line" unless ($create_table); 
+			
 			my $constraint; # We put everything inside this hashref, we'll push it into the constraint list later
 			$constraint->{TYPE}='PK';
 			if (defined $1)
@@ -442,7 +459,7 @@ sub parse_dump
 		{
 			next;
 		}
-		# Don't know what it is. If you have an idea, and it is worth converting, tell me :)
+		# Don't know what it is. If you know, and it is worth converting, tell me :)
 		elsif ($line =~ /^EXEC .*bindrule/)
 		{
 			next;
@@ -452,6 +469,8 @@ sub parse_dump
 		{
 			next;
 		}
+		# I only have seen types with added constraints ( create type foo varchar(50)) for now
+		# These are domains with PostgreSQL
 		elsif ($line =~ /^CREATE TYPE \[.*?\]\.\[(.*?)\] FROM \[(.*?)](?:\((\d+(?:,\s*\d+)?)?\))?/)
 		{
 			# Dependancy between types is not done for now. If the problem arises, it will be added
@@ -469,6 +488,8 @@ sub parse_dump
 		elsif ($line =~ /^CREATE (UNIQUE )?NONCLUSTERED INDEX \[(.*)\] ON \[.*\]\.\[(.*)\]/)
 		{
 			# Index creation. Index are namespaced per table in SQL Server, not in PostgreSQL
+			# So we store them in $objects, attached to the table
+			# Conflicts will be sorted by resolve_name_conflicts() later 
 			my $idxname=$2;
 			my $tablename=$3;
 			if ($1)
@@ -500,6 +521,7 @@ sub parse_dump
 				}
 			}
 		}
+		# Table constraints
 		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(((?:-)?\d+)\)\) FOR \[(.*)\]/)
 		{
 			$objects->{TABLES}->{$1}->{COLS}->{$3}->{DEFAULT}=$2;
@@ -559,9 +581,9 @@ sub parse_dump
 				}
 			}
 		}
-		elsif ($line =~ /ALTER TABLE \[.*\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD  CONSTRAINT \[(.*)\] CHECK  ((.*))/ )
+		elsif ($line =~ /ALTER TABLE \[.*\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD  CONSTRAINT \[(.*)\] CHECK  \(\((.*)\)\)/ )
 		{
-			# Check constraint. We'll do what we can
+			# Check constraint. We'll do what we can, syntax may be different.
 			my $constraint;
 			$constraint->{TABLE}=$1;
 			$constraint->{NAME}=$2;
@@ -572,22 +594,28 @@ sub parse_dump
 			$constraint->{TEXT}=$constxt;
 			push @{$objects->{'TABLES'}->{$table}->{CONSTRAINTS}},($constraint);
 		}
+		# These are comments on objets. They can be multiline, so aggregate everything 
+		# Until next GO command
 		elsif ($line =~ /^EXEC sys.sp_addextendedproperty/)
 		{ 
-			# These are comments on objets. They can be multiline, so aggregate everything 
-			# Until next GO command
 			my $sqlcomment=$line;
 			while (my $inline=<IN>)
 			{
 				last if ($inline =~ /^GO/);
 				$sqlcomment.=$inline
 			}
+
 			# Remove CR character... no place here
 			$sqlcomment =~ s/\r//g;
+
 			# We have all the comment. Let's parse it.
 			# Spaces are mostly random it seems, in SQL Server's dump code. So \s* everywhere :(
 			# There can be quotes inside a string. So (?<!')' matches only a ' not preceded by a '.
-			$sqlcomment =~ /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s;
+			# I hope it will be sufficient (won't be if someone decides to end a comment with a quote)
+
+			$sqlcomment =~ /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s
+			  or die "Could not parse $sqlcomment. This is a bug.\n";
+
 			my ($comment,$obj,$objname,$subobj,$subobjname)=($2,$5,$6,$7,$8);
 			if ($obj eq 'TABLE' and not defined $subobj)
 			{
@@ -611,6 +639,7 @@ sub parse_dump
 }
 
 # Creates the SQL scripts from $object
+# We generate alphabetically, to make things less random (this data comes from a hash)
 sub generate_schema
 {
 	my ($before_file,$after_file)=@_;
@@ -623,6 +652,8 @@ sub generate_schema
 	print AFTER "BEGIN;\n";
 
 	# Are we case insensitive ? We have to install citext then
+	# Won't work on pre-9.1 database. But as this is a migration tool
+	# if someone wants to start with an older version, it's their problem :)
 	if ($case_insensitive)
 	{
 		print BEFORE "CREATE EXTENSION citext;\n";
@@ -633,7 +664,7 @@ sub generate_schema
 	# The rest will go in the AFTER script (check constraints, put default values, etc...)
 
 	# The user-defined types (domains, etc)
-	foreach my $domain (keys %{$objects->{DOMAINS}})
+	foreach my $domain (sort keys %{$objects->{DOMAINS}})
 	{
 		print BEFORE "CREATE DOMAIN $domain " . $objects->{DOMAINS}->{$domain} . ";\n";
 	}
@@ -641,7 +672,7 @@ sub generate_schema
 	print BEFORE "\n"; # We change sections in the dump file
 
 	# The tables
-	foreach my $table (keys %{$objects->{TABLES}})
+	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
 		my @colsdef;
 		foreach my $col (sort  { $objects->{TABLES}->{$table}->{COLS}->{$a}->{POS} 
@@ -664,7 +695,7 @@ sub generate_schema
 	# We now add all "AFTER" objects
 	# We start with SEQUENCES, PKs and INDEXES (will be needed for FK)
 
-	foreach my $sequence (keys %{$objects->{SEQUENCES}})
+	foreach my $sequence (sort keys %{$objects->{SEQUENCES}})
 	{
 		my $seqref=$objects->{SEQUENCES}->{$sequence};
 		print AFTER "CREATE SEQUENCE $sequence INCREMENT BY " . $seqref->{STEP} 
@@ -673,7 +704,7 @@ sub generate_schema
 	}
 
 	# Now PK. We have to go through all tables
-	foreach my $table (keys %{$objects->{TABLES}})
+	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
 		my $refpk= $objects->{TABLES}->{$table}->{PK};
 		# Warn if no PK!
@@ -693,7 +724,7 @@ sub generate_schema
 	}
 
 	# Now The UNIQUE constraints. They may be used for FK (if columns are not null)
-	foreach my $table (keys %{$objects->{TABLES}})
+	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
 		foreach my $constraint (@{$objects->{TABLES}->{$table}->{CONSTRAINTS}})
 		{
@@ -709,7 +740,7 @@ sub generate_schema
 	}
 
 	# We have all we need for FKs now. We can put all other constraints (except PK of course)
-	foreach my $table (keys %{$objects->{TABLES}})
+	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
 		foreach my $constraint (@{$objects->{TABLES}->{$table}->{CONSTRAINTS}})
 		{
@@ -744,9 +775,9 @@ sub generate_schema
 	}
 
 	# Indexes
-	foreach my $table (keys %{$objects->{TABLES}})
+	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
-		foreach my $index (keys %{$objects->{TABLES}->{$table}->{INDEXES}})
+		foreach my $index (sort keys %{$objects->{TABLES}->{$table}->{INDEXES}})
 		{
 			my $idxref=$objects->{TABLES}->{$table}->{INDEXES}->{$index};
 			my $idxdef="CREATE";
@@ -762,9 +793,9 @@ sub generate_schema
 	}
 
 	# Default values
-	foreach my $table (keys %{$objects->{TABLES}})
+	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
-		foreach my $col (keys %{$objects->{TABLES}->{$table}->{COLS}})
+		foreach my $col (sort keys %{$objects->{TABLES}->{$table}->{COLS}})
 		{
 			my $colref=$objects->{TABLES}->{$table}->{COLS}->{$col};
 			next unless (defined $colref->{DEFAULT});
@@ -773,7 +804,7 @@ sub generate_schema
 	}
 
 	# Comments
-	foreach my $table (keys %{$objects->{TABLES}})
+	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
 		if (defined ($objects->{TABLES}->{$table}->{COMMENT}))
 		{
@@ -781,7 +812,7 @@ sub generate_schema
 				    $objects->{TABLES}->{$table}->{COMMENT} .
 				    "';\n";
 		}
-		foreach my $col (keys %{$objects->{TABLES}->{$table}->{COLS}})
+		foreach my $col (sort keys %{$objects->{TABLES}->{$table}->{COLS}})
 		{
 			my $colref=$objects->{TABLES}->{$table}->{COLS}->{$col};
 			if (defined ($colref->{COMMENT}))
@@ -801,7 +832,8 @@ sub generate_schema
 
 # This sub tries to avoid naming conflicts:
 # Under PostgreSQL, types, tables and indexes share the same namespace
-# As the table name is the only one used directly, types and indexes will be renamed
+# As the table name is the one that will be used directly, types and indexes will be renamed
+# Print a warning for each renamed type
 sub resolve_name_conflicts
 {
 	my %known_names;
@@ -810,6 +842,7 @@ sub resolve_name_conflicts
 	{
 		$known_names{$table}=1;
 	}
+
 	# We scan all types. For now, this tool only generates domains, so we scan domains
 	foreach my $domain (keys %{$objects->{DOMAINS}})
 	{
@@ -862,6 +895,8 @@ sub resolve_name_conflicts
 		}
 	}
 }
+
+# Main
 
 # Parse command line
 my $kettle=0;
