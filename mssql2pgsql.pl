@@ -305,32 +305,75 @@ sub generate_kettle
 
 }
 
+# sql server's dump may contain multiline C style comments (/* */)
+# This sub reads a line and cleans it up, removing comments, \r, etc...
+{
+	my $in_comment=0;
+	sub read_and_clean
+	{
+		my ($fd)=@_;
+		my $line=<$fd>;
+		return undef if (not defined $line);
+		$line =~ s/\r//g; # Remove \r from windows output
+		# If we are not in comment, we look for /*
+		# If we are in comment, we look for */, and we remove everything until */
+		if (not $in_comment)
+		{
+			# We first remove all one-line only comments (there may be several on this line)
+			$line =~ s/\/\*.*?\*\///g;
+			# Is there a comment left ?
+			if ($line =~ /\/\*/)
+			{
+				$in_comment=1;
+				$line =~ s/\/\*.*//; # Remove everything after the comment
+			}
+		}
+		else
+		{
+			# We do the reverse: keep only what is not commented
+		       $line =~ s/\*\/(.*?)\/\*/$1/g;
+		       # Is there an uncomment left ?
+		       if ($line =~ /\*\//)
+		       {
+			       $in_comment=0;
+			       $line =~ s/.*\*\///; # Remove everything before the uncomment
+		       }
+		       else
+		       {
+			       # There is no uncomment. The line should be empty
+			       $line = "\n";
+		       }
+		}
+		return $line;
+	}
+}
 # Reads the dump passed as -f
 # Generates the $object structure
 sub parse_dump
 {
 	# Open the input file or die. This first pass is to detect encoding, and open it correctly afterwards
 	my $data;
-	open IN,"<$filename" or die "Cannot open $filename, $!\n";
-	while (my $line=<IN>)
+	my $file;
+	open $file,"<$filename" or die "Cannot open $filename, $!\n";
+	while (my $line=<$file>)
 	{
 		$data.=$line;
 	}
-	close IN;
+	close $file;
 
 	# We now ask guess...
 	my $decoder=guess_encoding($data, qw/iso8859-15/);
 	die $decoder unless ref($decoder);
 
 	# If we got to here, it means we have found the right decoder
-	open IN,"<:encoding(".$decoder->name.")",$filename or die "Cannot open $filename, $!\n";
+	open $file,"<:encoding(".$decoder->name.")",$filename or die "Cannot open $filename, $!\n";
 
 	# Parsing loop variables
 	my $create_table=0; # Are we in a create table statement ?
 	my $table_name=''; # If yes, what's the table name ?
 	my $colnumber=0; # Column number (just to put the commas in the right places) ?
 	# Tagged because sql statements are often multi-line, so there are inner loops in some conditions
-	MAIN: while (my $line=<IN>)
+	MAIN: while (my $line=read_and_clean($file))
 	{
 		# Create table, obviously. There will be other lines below for the rest of the table definition
 		if ($line =~ /^CREATE TABLE \[.*\]\.\[(.*)\]\(/)
@@ -354,9 +397,16 @@ sub parse_dump
 				my $col=$colname;
 				if ($colqual)
 				{
-					# We need the number (or 2 numbers) in this qual
-					$colqual=~ /\((\d+(?:,\s*\d+)?)\)/ or die "Cannot parse colqual <$colqual>\n"; 
-					$colqual= "$1";
+					if ($colqual eq '(max)')
+					{
+						$colqual=undef; # max in sql server is the same as putting no colqual in pg
+					}
+					else
+					{
+						# We need the number (or 2 numbers) in this qual
+						$colqual=~ /\((\d+(?:,\s*\d+)?)\)/ or die "Cannot parse colqual <$colqual>\n"; 
+						$colqual= "$1";
+					}
 				}
 				my $newtype=convert_type($coltype,$colqual,$colname,$table_name);
 				# If it is an identity, we'll map to serial/bigserial (create a sequence, then link it
@@ -414,7 +464,7 @@ sub parse_dump
 			}
 
 			# Here is the PK. We read the following lines until the end of the constraint
-			while (my $pk=<IN>)
+			while (my $pk=read_and_clean($file))
 			{
 				# Exit when read a line beginning with ). The constraint is complete. We store it and go back to main loop
 				if ($pk =~ /^\)/)
@@ -439,7 +489,7 @@ sub parse_dump
 				$constraint->{NAME}=$1;
 			}
 			# Unique key definition. We read following lines until the end of the constraint
-			while (my $uk=<IN>)
+			while (my $uk=read_and_clean($file))
 			{
 				# Exit when read a line beginning with ). The constraint is complete
 				if ($uk =~ /^\)/)
@@ -455,7 +505,7 @@ sub parse_dump
 
 		}
 		# Ignore USE, GO, and things that have no meaning for postgresql
-		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER ON|^SET ANSI_PADDING|CHECK CONSTRAINT/)
+		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER|^SET ANSI_PADDING|CHECK CONSTRAINT|BEGIN|END/)
 		{
 			next;
 		}
@@ -469,6 +519,41 @@ sub parse_dump
 		{
 			next;
 		}
+		# Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
+		elsif ($line =~ /^IF NOT EXISTS/)
+		{
+			next;
+		}
+		# Ignore EXEC dbo.sp_executesql, for now only seen for a create view. Views sql command aren't executed directly, don't know why
+		elsif ($line =~ /^EXEC dbo.sp_executesql/)
+		{
+			next;
+		}
+		# Still on views: there are empty lines, and C-style comments
+		elsif ($line =~ /^\s*$/)
+		{
+			next;
+		}
+		# Now we parse the create view. It is multi-line, so the code looks like like create table: we parse everything until a line
+		# containing only a single quote (end of the dbo.sp_executesql)
+		elsif ($line =~ /^\s*(create\s*view)\s*\[\S+\]\.\[(.*?)\]\s*(.*)$/i)
+		{
+			my $viewname=$2;
+			my $sql=$1 . ' ' . $2 . ' ' . $3 . "\n";
+			while (my $line_cont=read_and_clean($file))
+			{
+				if ($line_cont =~ /^\s*'\s*$/)
+				{
+					# The view definition is complete.
+					# We get rid of dbo. schemas
+					$sql =~ s/dbo\.//g; # We put this in the current schema
+					$objects->{'VIEWS'}->{$viewname}->{SQL}=$sql;
+					next MAIN;
+				}
+				$sql.=$line_cont;
+			}
+		}
+		#
 		# I only have seen types with added constraints ( create type foo varchar(50)) for now
 		# These are domains with PostgreSQL
 		elsif ($line =~ /^CREATE TYPE \[.*?\]\.\[(.*?)\] FROM \[(.*?)](?:\((\d+(?:,\s*\d+)?)?\))?/)
@@ -500,7 +585,7 @@ sub parse_dump
 			{
 				$objects->{TABLES}->{$tablename}->{INDEXES}->{$idxname}->{UNIQUE}=0;
 			}
-			while (my $idx=<IN>)
+			while (my $idx=read_and_clean($file))
 			{
 				# Exit when read a line beginning with ). The index is complete
 				if ($idx =~ /^\)/)
@@ -558,7 +643,7 @@ sub parse_dump
 			$constraint->{LOCAL_COLS}=$3;
 			$constraint->{LOCAL_TABLE}=$1;
 			$constraint->{LOCAL_COLS} =~ s/\[|\]//g; # Remove brackets
-			while (my $fk = <IN>)
+			while (my $fk = read_and_clean($file))
 			{
 				if ($fk =~ /^GO/)
 				{
@@ -596,38 +681,58 @@ sub parse_dump
 		}
 		# These are comments on objets. They can be multiline, so aggregate everything 
 		# Until next GO command
+		# If fact in can be a lot of things. So we have to ignore things like MS_DiagramPaneCount
 		elsif ($line =~ /^EXEC sys.sp_addextendedproperty/)
 		{ 
-			my $sqlcomment=$line;
-			while (my $inline=<IN>)
+			my $sqlproperty=$line;
+			while (my $inline=read_and_clean($file))
 			{
 				last if ($inline =~ /^GO/);
-				$sqlcomment.=$inline
+				$sqlproperty.=$inline
 			}
 
-			# Remove CR character... no place here
-			$sqlcomment =~ s/\r//g;
 
-			# We have all the comment. Let's parse it.
-			# Spaces are mostly random it seems, in SQL Server's dump code. So \s* everywhere :(
-			# There can be quotes inside a string. So (?<!')' matches only a ' not preceded by a '.
-			# I hope it will be sufficient (won't be if someone decides to end a comment with a quote)
+			# We have all the extended property. Let's parse it.
 
-			$sqlcomment =~ /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s
-			  or die "Could not parse $sqlcomment. This is a bug.\n";
-
-			my ($comment,$obj,$objname,$subobj,$subobjname)=($2,$5,$6,$7,$8);
-			if ($obj eq 'TABLE' and not defined $subobj)
+			# First step: what kind is it ? we are only interested in comments for now
+			$sqlproperty =~ /\@name=N'(.*?)'/ or die "Cannot find a name for this extended property: $sqlproperty\n";
+			my $propertyname=$1;
+			if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1)$/)
 			{
-				$objects->{TABLES}->{$objname}->{COMMENT}=$comment;
+				# We don't dump these. They are graphical descriptions of the GUI
+				next;
 			}
-			elsif ($obj eq 'TABLE' and $subobj eq 'COLUMN')
+
+			elsif ($propertyname eq 'MS_Description')
 			{
-				$objects->{TABLES}->{$objname}->{COLS}->{$subobjname}->{COMMENT}=$comment;
+				# This is a comment. We parse it.
+				# Spaces are mostly random it seems, in SQL Server's dump code. So \s* everywhere :(
+				# There can be quotes inside a string. So (?<!')' matches only a ' not preceded by a '.
+				# I hope it will be sufficient (won't be if someone decides to end a comment with a quote)
+
+				$sqlproperty =~ /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s
+				  or die "Could not parse $sqlproperty. This is a bug.\n";
+				my ($comment,$obj,$objname,$subobj,$subobjname)=($2,$5,$6,$7,$8);
+				if ($obj eq 'TABLE' and not defined $subobj)
+				{
+					$objects->{TABLES}->{$objname}->{COMMENT}=$comment;
+				}
+				elsif ($obj eq 'VIEW' and not defined $subobj)
+				{
+					$objects->{VIEWS}->{$objname}->{COMMENT}=$comment;
+				}
+				elsif ($obj eq 'TABLE' and $subobj eq 'COLUMN')
+				{
+					$objects->{TABLES}->{$objname}->{COLS}->{$subobjname}->{COMMENT}=$comment;
+				}
+				else
+				{
+					die "Cannot understand this comment: $sqlproperty\n";
+				}
 			}
 			else
 			{
-				die "Cannot understand this comment: $sqlcomment\n";
+				die "Don't know what to do with this extendedproperty: $sqlproperty\n";
 			}
 		}
 		else
@@ -635,7 +740,7 @@ sub parse_dump
 			die "Line <$line> ($.) not understood. This is a bug\n";
 		}
 	}
-	close IN;
+	close $file;
 }
 
 # Creates the SQL scripts from $object
@@ -803,7 +908,7 @@ sub generate_schema
 		}
 	}
 
-	# Comments
+	# Comments on tables
 	foreach my $table (sort keys %{$objects->{TABLES}})
 	{
 		if (defined ($objects->{TABLES}->{$table}->{COMMENT}))
@@ -820,6 +925,18 @@ sub generate_schema
 				print AFTER "COMMENT ON COLUMN $table.$col IS '" .
 					    $colref->{COMMENT} . "';\n";
 			}
+		}
+	}
+
+	# The views, and comments
+	foreach my $view (sort keys %{$objects->{VIEWS}})
+	{
+		print AFTER $objects->{VIEWS}->{$view}->{SQL},";\n";
+		if (defined $objects->{VIEWS}->{$view}->{COMMENT})
+		{
+			print AFTER "COMMENT ON VIEW $view IS '" .
+				     $objects->{VIEWS}->{$view}->{COMMENT} .
+				     "';\n";
 		}
 	}
 
