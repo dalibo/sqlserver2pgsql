@@ -48,14 +48,20 @@ my %types=('int'=>'int',
 	   'smallint'=>'smallint',
 	   'tinyint'=>'smallint',
 	   'datetime'=>'timestamp',
+	   'smalldatetime'=>'timestamp',
            'char'=>'char',
 	   'image'=>'bytea',
 	   'text'=>'text',
 	   'bigint'=>'bigint',
 	   'timestamp'=>'timestamp',
 	   'numeric'=>'numeric',
-	   'decimal'=>'numeric'
+	   'decimal'=>'numeric',
+	   'binary'=>'bytea',
+	   'varbinary'=>'bytea',
 	   );
+
+# Types with no qualifier, and no point in putting one
+my %unqual=('bytea'=>1);
 
 # This function uses the static list above, plus domains and citext types that
 # may have been created during parsing, to convert mssql's types to pgsql's
@@ -65,7 +71,7 @@ sub convert_type
 	my $rettype;
 	if (defined $types{$sqlstype})
 	{
-		if (defined $sqlqual)
+		if (defined $sqlqual and not defined ($unqual{$types{$sqlstype}}))
 		{
 			$rettype= ($types{$sqlstype}."($sqlqual)");
 		}
@@ -110,6 +116,29 @@ sub convert_type
 		}
 	}
 	return $rettype;
+}
+
+# This gives the next column position for a table
+# It is used when we receive alter tables in the sql server dump
+sub next_col_pos
+{
+	my ($table)=@_;
+	if (defined $objects->{TABlES}->{$table}->{COLS})
+	{
+		my $max=0;
+		foreach my $col(values (%{$objects->{TABlES}->{$table}->{COLS}}))
+		{
+			if ($col->{POS} > $max)
+			{
+				$max=$col->{POS};
+			}
+		}
+		return $max+1;
+	}
+	else
+	{
+		die "We tried to add a column to a table that unknown\n";
+	}
 }
 
 sub is_windows
@@ -159,11 +188,12 @@ sub check_kettle_properties
 
 sub usage
 {
-	print "$0 [-k kettle_output_directory] -b before_file -a after_file -f sql_server_schema_file[-h] [-i]\n";
+	print "$0 [-k kettle_output_directory] -b before_file -a after_file -u unsure_file -f sql_server_schema_file[-h] [-i]\n";
 	print "\nExpects a SQL Server SQL structure dump as -f (preferably unicode)\n";
 	print "-i tells PostgreSQL to create a case-insensitive PostgreSQL schema\n";
 	print "before_file contains the structure\n";
 	print "after_file contains index, constraints\n";
+	print "unsure_file contains things we cannot guarantee will work, such as views\n";
 	print "\n";
 	print "If you are generating for kettle, you'll need to provide connection information\n";
 	print "for connecting to both databases:\n";
@@ -206,7 +236,7 @@ sub generate_kettle
 			    ($objects->{TABLES}->{$table}->{COLS}->{($objects->{TABLES}->{$table}->{PK}->{COLS}->[0])}->{TYPE} =~ /int$/)
 			   )
 			{
-				my $wherefilter='WHERE ' . $objects->{TABLES}->{$table}->{PK}->[0]
+				my $wherefilter='WHERE ' . $objects->{TABLES}->{$table}->{PK}->{COLS}->[0]
 				. '% ${Internal.Step.Unique.Count} = ${Internal.Step.Unique.Number}';
 				$newtemplate =~ s/__sqlserver_where_filter__/$wherefilter/;
 				$newtemplate =~ s/__sqlserver_copies__/4/g;
@@ -315,6 +345,7 @@ sub generate_kettle
 		my $line=<$fd>;
 		return undef if (not defined $line);
 		$line =~ s/\r//g; # Remove \r from windows output
+		$line =~ s/EXEC(ute)?\s*(dbo|sys)\.sp_executesql( \@statement =)? N'//i; # Remove executesql… we are already executing sql
 		# If we are not in comment, we look for /*
 		# If we are in comment, we look for */, and we remove everything until */
 		if (not $in_comment)
@@ -504,8 +535,43 @@ sub parse_dump
 			}
 
 		}
+		elsif ($line =~ /CREATE SCHEMA \[(.*)\] AUTHORIZATION \[.*\]/)
+		{
+			$objects->{'SCHEMAS'}->{$1}=1; # Nothing to add here
+		}
+		elsif ($line =~ /CREATE\s+PROC(?:EDURE)?\s+\[.*\]\.\[(.*)\]/i)
+		{
+			print STDERR "Procedure $1 ignored\n";
+			# We have to find next GO to know we are out of the procedure
+			while (my $contline=read_and_clean($file))
+			{
+				next MAIN if ($contline =~ /^GO$/);
+			}
+		}
+		elsif ($line =~ /CREATE\s+FUNCTION\s+\[.*\]\.\[(.*)\]/i)
+		{
+			print STDERR "Function $1 ignored\n";
+			# We have to find next GO to know we are out of the procedure
+			while (my $contline=read_and_clean($file))
+			{
+				next MAIN if ($contline =~ /^GO$/);
+			}
+		}
+		elsif ($line =~ /CREATE\s+TRIGGER\s+\[(.*)\]/i)
+		{
+			print STDERR "Trigger $1 ignored\n";
+			# We have to find next GO to know we are out of the procedure
+			while (my $contline=read_and_clean($file))
+			{
+				next MAIN if ($contline =~ /^GO$/);
+			}
+		}
 		# Ignore USE, GO, and things that have no meaning for postgresql
 		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER|^SET ANSI_PADDING|CHECK CONSTRAINT|BEGIN|END/)
+		{
+			next;
+		}
+		elsif ($line =~ /^--/) # Comment
 		{
 			next;
 		}
@@ -606,7 +672,23 @@ sub parse_dump
 				}
 			}
 		}
+		# Added table columns… this seems to appear in SQL Server when some columns have ansi padding, and some not.
+		# PG follows ansi, that is not an option. The end of the regexp is pasted from the create table
+		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD \[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( .*\(\d+,\s*\d+\))? (NOT NULL|NULL)$/)
+		{
+			die "$line: not understood. This is a bug\n";
+		}
 		# Table constraints
+		# Primary key. Multiline
+		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[(.*)\])? PRIMARY KEY (?:CLUSTERED)?/)
+		{
+			die "$line: not understood. This is a bug\n";
+			while (my $contline=read_and_clean($file))
+			{
+				next MAIN if ($contline =~ /^GO/);
+			}
+		}
+
 		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(((?:-)?\d+)\)\) FOR \[(.*)\]/)
 		{
 			$objects->{TABLES}->{$1}->{COLS}->{$3}->{DEFAULT}=$2;
@@ -747,14 +829,17 @@ sub parse_dump
 # We generate alphabetically, to make things less random (this data comes from a hash)
 sub generate_schema
 {
-	my ($before_file,$after_file)=@_;
+	my ($before_file,$after_file,$unsure_file)=@_;
 	# Open the output files (except kettle, we'll do that at the end)
 	open BEFORE,">:utf8",$before_file or die "Cannot open $before_file, $!\n";
 	open AFTER,">:utf8",$after_file or die "Cannot open $after_file, $!\n";
+	open UNSURE,">:utf8",$unsure_file or die "Cannot open $unsure_file, $!\n";
 	print BEFORE "\\set ON_ERROR_STOP\n";
 	print BEFORE "BEGIN;\n";
 	print AFTER "\\set ON_ERROR_STOP\n";
 	print AFTER "BEGIN;\n";
+	print UNSURE "\\set ON_ERROR_STOP\n";
+	print UNSURE "BEGIN;\n";
 
 	# Are we case insensitive ? We have to install citext then
 	# Won't work on pre-9.1 database. But as this is a migration tool
@@ -775,6 +860,12 @@ sub generate_schema
 	}
 
 	print BEFORE "\n"; # We change sections in the dump file
+
+	# The schemas
+	foreach my $schema (sort keys %{$objects->{SCHEMAS}})
+	{
+		print BEFORE "CREATE SCHEMA $schema;\n";
+	}
 
 	# The tables
 	foreach my $table (sort keys %{$objects->{TABLES}})
@@ -931,10 +1022,10 @@ sub generate_schema
 	# The views, and comments
 	foreach my $view (sort keys %{$objects->{VIEWS}})
 	{
-		print AFTER $objects->{VIEWS}->{$view}->{SQL},";\n";
+		print UNSURE $objects->{VIEWS}->{$view}->{SQL},";\n";
 		if (defined $objects->{VIEWS}->{$view}->{COMMENT})
 		{
-			print AFTER "COMMENT ON VIEW $view IS '" .
+			print UNSURE "COMMENT ON VIEW $view IS '" .
 				     $objects->{VIEWS}->{$view}->{COMMENT} .
 				     "';\n";
 		}
@@ -942,8 +1033,10 @@ sub generate_schema
 
 	print BEFORE "COMMIT;\n";
 	print AFTER "COMMIT;\n";
+	print UNSURE "COMMIT;\n";
 	close BEFORE;
 	close AFTER;
+	close UNSURE;
 
 }
 
@@ -1020,10 +1113,12 @@ my $kettle=0;
 my $help=0;
 my $before_file='';
 my $after_file='';
+my $unsure_file='';
 
 my $options = GetOptions ( "k=s"   => \$kettle,
 			   "b=s"   => \$before_file,
 			   "a=s"   => \$after_file,
+			   "u=s"   => \$unsure_file,
 		           "h"     => \$help,
 			   "sd=s"  => \$sd,
 			   "sh=s"  => \$sh,
@@ -1039,7 +1134,7 @@ my $options = GetOptions ( "k=s"   => \$kettle,
 			   "i"     => \$case_insensitive,
 			   );
 
-if (not $options or $help or not $before_file or not $after_file or not $filename)
+if (not $options or $help or not $before_file or not $after_file or not $unsure_file or not $filename)
 {
 	usage();
 	exit 1;
@@ -1056,7 +1151,7 @@ parse_dump();
 
 resolve_name_conflicts();
 
-generate_schema($before_file, $after_file);
+generate_schema($before_file, $after_file, $unsure_file);
 
 
 if ( $kettle and (defined $ENV{'HOME'} or defined $ENV{'USERPROFILE'} ) )
