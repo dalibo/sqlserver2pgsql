@@ -68,11 +68,12 @@ run mssql2pg.pl from.
 
 If you just want to convert this schema, run:
 
-> mssql2pg -f my_sqlserver_script.txt -b name_of_before_script -a name_of_after_script
+> mssql2pg -f my_sqlserver_script.txt -b name_of_before_script -a name_of_after_script -u name_of_unsure_script
 
 The before script contains what is needed to import data (types, tables and columns).
 The after script contains the rest (indexes, constraints). It should be run
-after data is imported.
+after data is imported. The unsure script contains objects where we attempt to migrate, but cannot guarantee,
+such as views.
 
 You can also use the -i option:
 
@@ -81,7 +82,7 @@ You can also use the -i option:
 
 If you want to also import data:
 
-> ./mssql2pgsql.pl -b before.sql -a after.sql -k kettledir \ 
+> ./mssql2pgsql.pl -b before.sql -a after.sql -u unsure.sql -k kettledir \ 
   -sd source -sh 192.168.0.2 -sp 1433 -su dalibo -sw mysqlpass \
   -pd dest -ph localhost -pp 5432 -pu dalibo -pw mypgpass -f sql_server_schema.sql
 
