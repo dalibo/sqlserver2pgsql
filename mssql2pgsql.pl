@@ -1227,7 +1227,7 @@ if ($kettle and (not $sd or not $sh or not $sp or not $su or not $sw or not $pd 
 }
 
 parse_dump();
-print Dumper($objects);
+#print Dumper($objects);
 
 resolve_name_conflicts();
 
