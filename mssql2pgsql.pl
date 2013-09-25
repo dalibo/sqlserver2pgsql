@@ -132,7 +132,7 @@ sub convert_type
 			if (defined $colname and defined $tablename) # We are called from a CREATE TABLE, we have to add a check constraint
 			{
 				my $constraint;
-				$constraint->{TYPE}='CHECK_GENERATED';
+				$constraint->{TYPE}='CHECK_CITEXT';
 				$constraint->{TABLE}=$tablename;
 				$constraint->{TEXT}="char_length($colname) <= $sqlqual";
 				push @{$objects->{$schemaname}->{TABLES}->{$tablename}->{CONSTRAINTS}},($constraint);
@@ -1056,11 +1056,11 @@ sub generate_schema
 					$consdef.= " CHECK (" . $constraint->{TEXT} . ");\n";
 					print UNSURE $consdef; # Check constraints are SQL, so cannot be sure
 				}
-				elsif ($constraint->{TYPE} eq 'CHECK_GENERATED') 
+				elsif ($constraint->{TYPE} eq 'CHECK_CITEXT') 
 				{
 					# These have been generated here, for citext mostly. So we know their syntax is ok
 					$consdef.= " CHECK (" . $constraint->{TEXT} . ");\n";
-					print AFTER $consdef; # Check constraints are SQL, so cannot be sure
+					print BEFORE $consdef; # These are for citext. So they should be checked asap
 				}
 				else
 				{
