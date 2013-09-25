@@ -286,7 +286,7 @@ sub generate_kettle
 			$newtemplate =~ s/__postgres_password__/$pw/g;
 			# FIXME: add schema correction
 			$newtemplate =~ s/__sqlserver_table_name__/$schema.$table/g;
-			$newtemplate =~ s/__postgres_table_name__/$targetschema.$table/g;
+			$newtemplate =~ s/__postgres_table_name__/lc($targetschema.$table)/g;
 			# Store this new transformation into its file
 			open FILE, ">$dir/$table.ktr" or die "Cannot write to $dir/$table.ktr, $!\n";
 			print FILE $newtemplate;
