@@ -65,7 +65,7 @@ my %types=('int'=>'int',
 # Types with no qualifier, and no point in putting one
 my %unqual=('bytea'=>1);
 
-# This function uses the static list above, plus domains and citext types that
+# This function uses the two static lists above, plus domains and citext types that
 # may have been created during parsing, to convert mssql's types to pgsql's
 sub convert_type
 {
@@ -73,13 +73,14 @@ sub convert_type
 	my $rettype;
 	if (defined $types{$sqlstype})
 	{
-		if (defined $sqlqual and not defined ($unqual{$types{$sqlstype}}))
+		if ((defined $sqlqual and defined ($unqual{$types{$sqlstype}})) or not defined $sqlqual)
+		{ 
+			# This is one of the few types that have to be unqualified (binary type)
+			$rettype= $types{$sqlstype};
+		}
+		elsif (defined $sqlqual)
 		{
 			$rettype= ($types{$sqlstype}."($sqlqual)");
-		}
-		else
-		{
-			$rettype= $types{$sqlstype};
 		}
 	}
 	elsif ($sqlstype eq 'bit' and not defined $sqlqual)
@@ -90,7 +91,11 @@ sub convert_type
 	{
 		$rettype= "text";
 	}
-	die "Cannot determine the PostgreSQL's datatype corresponding to $sqlstype. This is a bug\n" unless $rettype;
+	else
+	{
+		print "Types: " , Dumper(\%types);
+		croak "Cannot determine the PostgreSQL's datatype corresponding to $sqlstype. This is a bug\n";
+	}
 	# We special case when type is varchar, to be case insensitive
 	if ($sqlstype =~ /text|varchar/ and $case_insensitive)
 	{
@@ -299,48 +304,51 @@ sub generate_kettle
 	                      # the job with spoon (kettle's gui)
 	# We sort only so that it will be easier to find a transformation in the job if one needed to
 	# edit it. It's also easier to track progress if tables are sorted alphabetically
-	foreach my $table (sort {lc($a) cmp lc($b)}keys %{$objects->{TABLES}})
+	while (my ($schema,$refschema)=each %{$objects})
 	{
-		my $tmp_entry=$job_entry;
-		# We build the entries with regexp substitutions:
-		$tmp_entry =~ s/__table_name__/$table/;
-		# Filename to use. We need the full path to the transformations
-		my $filename;
-		if ( $dir =~ /^(\\|\/)/) # Absolute path
+		foreach my $table (sort {lc($a) cmp lc($b)}keys %{$refschema->{TABLES}})
 		{
-			$filename = $dir . '/' . $table . '.ktr';
-		}
-		else
-		{
-			$filename = $real_dir . '/' . $dir . '/' . $table . '.ktr';
-		}
-		# Different for windows and linux, obviously: we change / to \ for windows
-		unless (is_windows())
-		{
-			$filename =~ s/\//&#47;/g;
-		}
-		else
-		{
-			$filename =~ s/\//\\/g;
-		}
-		$tmp_entry =~ s/__file_name__/$filename/;
-		$tmp_entry =~ s/__y_loc__/$cur_vert_pos/;
-		$entries.=$tmp_entry;
+			my $tmp_entry=$job_entry;
+			# We build the entries with regexp substitutions:
+			$tmp_entry =~ s/__table_name__/$table/;
+			# Filename to use. We need the full path to the transformations
+			my $filename;
+			if ( $dir =~ /^(\\|\/)/) # Absolute path
+			{
+				$filename = $dir . '/' . $table . '.ktr';
+			}
+			else
+			{
+				$filename = $real_dir . '/' . $dir . '/' . $table . '.ktr';
+			}
+			# Different for windows and linux, obviously: we change / to \ for windows
+			unless (is_windows())
+			{
+				$filename =~ s/\//&#47;/g;
+			}
+			else
+			{
+				$filename =~ s/\//\\/g;
+			}
+			$tmp_entry =~ s/__file_name__/$filename/;
+			$tmp_entry =~ s/__y_loc__/$cur_vert_pos/;
+			$entries.=$tmp_entry;
 
-		# We build the hop with the regexp too
-		my $tmp_hop=$job_hop;
-		$tmp_hop =~ s/__table_1__/$prev_node/;
-		$tmp_hop =~ s/__table_2__/$table/;
-		if ($prev_node eq 'START')
-		{
-			# Specific to the start node. It has to be unconditional
-			$tmp_hop =~ s/<unconditional>N<\/unconditional>/<unconditional>Y<\/unconditional>/;
+			# We build the hop with the regexp too
+			my $tmp_hop=$job_hop;
+			$tmp_hop =~ s/__table_1__/$prev_node/;
+			$tmp_hop =~ s/__table_2__/$table/;
+			if ($prev_node eq 'START')
+			{
+				# Specific to the start node. It has to be unconditional
+				$tmp_hop =~ s/<unconditional>N<\/unconditional>/<unconditional>Y<\/unconditional>/;
+			}
+			$hops.=$tmp_hop;
+			
+			# We increment everything for next loop
+			$prev_node=$table; # For the next hop
+			$cur_vert_pos+=80; # To be pretty in spoon
 		}
-		$hops.=$tmp_hop;
-		
-		# We increment everything for next loop
-		$prev_node=$table; # For the next hop
-		$cur_vert_pos+=80; # To be pretty in spoon
 	}
 	
 	print FILE $job_header;
@@ -435,17 +443,23 @@ sub parse_dump
 			$objects->{$schemaname}->{TABLES}->{$tablename}->{haslobs}=0;
 		}
 		# Here is a col definition. We should be inside a create table
-		elsif ($line =~ /^\t\[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/)
+		elsif ($line =~ /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/)
 		{
 			if ($create_table) # We are inside a create table, this is a column definition
 			{
 				$colnumber++;
 				my $colname=$1;
-				my $coltype=$2;
-				my $colqual=$3;
-				my $isidentity=$4;
-				my $colisnull=$5;
-				my $col=$colname;
+				my $coltypeschema=$2;
+				my $coltype=$3;
+				if (defined $coltypeschema)
+				{
+					# The datatype is a user defined datatype
+					# It has already been declared before. We just need to find it
+					$coltype=$coltypeschema . '.' . $coltype; 
+				}
+				my $colqual=$4;
+				my $isidentity=$5;
+				my $colisnull=$6;
 				if ($colqual)
 				{
 					if ($colqual eq '(max)')
@@ -477,7 +491,6 @@ sub parse_dump
 					$objects->{$schemaname}->{SEQUENCES}->{$seqname}->{OWNERTABLE}=$tablename . "." . $colname;
 					$objects->{$schemaname}->{SEQUENCES}->{$seqname}->{OWNERSCHEMA}=$schemaname;
 				}
-				$col .= " " . $newtype;
 				# If there is a bytea generated, this table will contain a blob:
 				# use a special kettle transformation for it if generating kettle
 				# (see generate_kettle() )
@@ -662,7 +675,8 @@ sub parse_dump
 			my $newtype=convert_type($origtype,$quals,undef,undef,$type,$schema);
 			$objects->{$schema}->{DOMAINS}->{$type}=$newtype;
 			# We add them to known data types, as they probably will be used in table definitions
-			$types{$type}=$newtype;
+			# but they point to themselves, with the schema corrected: we want them substituted by themselve
+			$types{$schema . '.' . $type}=dboreplace($schema) . '.' . $type; # We store the schema with it
 		}
 		elsif ($line =~ /^\) ON \[PRIMARY\]/)
 		{
@@ -1134,9 +1148,11 @@ sub resolve_name_conflicts
 				{
 					foreach my $col (values %{$table->{COLS}})
 					{
-						if ($col->{TYPE} eq $domain)
+						# If a column has a custom type, it will be prefixed by schema
+						# The schema will be the destination schema: dbo may have been replaced by public
+						if ($col->{TYPE} eq (dboreplace($schema) . '.' . $domain) ) 
 						{
-							$col->{TYPE} = $domain . "2pgd";
+							$col->{TYPE} = dboreplace($schema) . '.' . $domain . "2pgd";
 						}
 					}
 				}
@@ -1211,7 +1227,7 @@ if ($kettle and (not $sd or not $sh or not $sp or not $su or not $sw or not $pd 
 }
 
 parse_dump();
-#print Dumper($objects);
+print Dumper($objects);
 
 resolve_name_conflicts();
 
