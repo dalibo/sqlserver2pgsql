@@ -916,10 +916,13 @@ sub generate_schema
 	open AFTER,">:utf8",$after_file or die "Cannot open $after_file, $!\n";
 	open UNSURE,">:utf8",$unsure_file or die "Cannot open $unsure_file, $!\n";
 	print BEFORE "\\set ON_ERROR_STOP\n";
+	print BEFORE "\\set ECHO all\n";
 	print BEFORE "BEGIN;\n";
 	print AFTER "\\set ON_ERROR_STOP\n";
+	print AFTER "\\set ECHO all\n";
 	print AFTER "BEGIN;\n";
 	print UNSURE "\\set ON_ERROR_STOP\n";
+	print AFTER "\\set ECHO all\n";
 	print UNSURE "BEGIN;\n";
 
 	# Are we case insensitive ? We have to install citext then
