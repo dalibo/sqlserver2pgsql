@@ -284,9 +284,9 @@ sub generate_kettle
 			$newtemplate =~ s/__postgres_port__/$pp/g;
 			$newtemplate =~ s/__postgres_username__/$pu/g;
 			$newtemplate =~ s/__postgres_password__/$pw/g;
-			my $target=lc($targetschema . '.' . $table);
 			$newtemplate =~ s/__sqlserver_table_name__/$schema.$table/g;
-			$newtemplate =~ s/__postgres_table_name__/$target/g;
+			$newtemplate =~ s/__postgres_table_name__/$table/g;
+			$newtemplate =~ s/__postgres_schema_name__/$targetschema/g;
 			# Store this new transformation into its file
 			open FILE, ">$dir/$table.ktr" or die "Cannot write to $dir/$table.ktr, $!\n";
 			print FILE $newtemplate;
@@ -1431,7 +1431,7 @@ BEGIN
            <schema_name/>
            </partitioning>
     <connection>__postgres_db__</connection>
-    <schema/>
+    <schema>__postgres_schema_name__</schema>
     <table>__postgres_table_name__</table>
     <commit>500</commit>
     <truncate>Y</truncate>
@@ -1646,7 +1646,7 @@ EOF
            <schema_name/>
            </partitioning>
     <connection>__postgres_db__</connection>
-    <schema/>
+    <schema>__postgres_schema_name__</schema>
     <table>__postgres_table_name__</table>
     <commit>100</commit>
     <truncate>Y</truncate>
