@@ -33,13 +33,29 @@ my ($sd,$sh,$sp,$su,$sw,$pd,$ph,$pp,$pu,$pw);# Connection args
 my $filename;# Filename passed as arg
 my $case_insensitive=0; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
 			# If yes, we will generate citext with CHECK constraints...
-my $norelabel_dbo=0; # Passed as arg: should we convert DBO to public ? FIXME:todo
+my $norelabel_dbo=0; # Passed as arg: should we convert DBO to public ?
+my $convert_numeric_to_int=0; # Should we convert numerics to int when possible ? (numeric (4,0) should be an int, for instance)
 
 my $template;     # These two variables are loaded in the BEGIN block at the end of this file (they are very big
 my $template_lob; # putting them there won't pollute the code as much)
 
 my ($job_header,$job_middle,$job_footer); # These are used to create the static parts of the job
 my ($job_entry,$job_hop); # These are used to create the dynamic parts of the job (XML file)
+
+
+# Converts numeric(4,0) to int
+sub convert_numeric_to_int
+{
+	my ($qual)=@_;
+	croak "not a good qualifier $qual" unless ($qual =~ /^(\d+),\s*(\d+)$/);
+	my $precision=$1;
+	my $scale=$2;
+	croak "scale should be 0\n" unless ($scale eq '0');
+	return 'smallint' if ($precision<=4);
+	return 'integer' if ($precision<=9);
+	return 'bigint' if ($precision<=18);
+	return 'numeric($qual)';
+}
 
 
 my %types=('int'=>'int',
@@ -56,7 +72,6 @@ my %types=('int'=>'int',
 	   'text'=>'text',
 	   'bigint'=>'bigint',
 	   'timestamp'=>'timestamp',
-	   'numeric'=>'numeric',
 	   'decimal'=>'numeric',
 	   'binary'=>'bytea',
 	   'varbinary'=>'bytea',
@@ -83,6 +98,7 @@ sub convert_type
 			$rettype= ($types{$sqlstype}."($sqlqual)");
 		}
 	}
+	# A few special cases
 	elsif ($sqlstype eq 'bit' and not defined $sqlqual)
 	{
 		$rettype= "boolean";
@@ -90,6 +106,15 @@ sub convert_type
 	elsif ($sqlstype eq 'ntext' and not defined $sqlqual)
 	{
 		$rettype= "text";
+	}
+	elsif ($sqlstype eq 'numeric')
+	{
+		# Numeric is a special case:
+		# No qualifier. We have to use numeric
+		return 'numeric' unless ($sqlqual);
+		return "numeric($sqlqual)" unless ($sqlqual =~ /\d+,\s*0/); # If the qualifier is not x,0
+		return "numeric($sqlqual)" unless ($convert_numeric_to_int); # If we have not activated conversion
+		return convert_numeric_to_int($sqlqual); # We got there: convert !
 	}
 	else
 	{
@@ -208,6 +233,7 @@ sub usage
 	print "\nExpects a SQL Server SQL structure dump as -f (preferably unicode)\n";
 	print "-i tells $0 to create a case-insensitive PostgreSQL schema\n";
 	print "-nr tells $0 not to convert the dbo schema to public. dbo will stay dbo\n";
+	print "-num tells $0 to convert numeric xxx,0 to int, bigint, etc. Will not keep numeric scale and precision for the converted\n";
 	print "before_file contains the structure\n";
 	print "after_file contains index, constraints\n";
 	print "unsure_file contains things we cannot guarantee will work, such as views\n";
@@ -1212,6 +1238,7 @@ my $options = GetOptions ( "k=s"   => \$kettle,
 			   "f=s"   => \$filename,
 			   "i"     => \$case_insensitive,
 			   "nr"	   => \$norelabel_dbo,
+			   "num"   => \$convert_numeric_to_int,
 			   );
 
 if (not $options or $help or not $before_file or not $after_file or not $unsure_file or not $filename)
