@@ -75,10 +75,16 @@ The after script contains the rest (indexes, constraints). It should be run
 after data is imported. The unsure script contains objects where we attempt to migrate, but cannot guarantee,
 such as views.
 
-You can also use the -i option:
+You can also use the -i, -num and/or -nr options:
 
 -i  : Generate an "ignore case" schema, using citext, to emulate MSSQL's case insensitive collation.
       It will create citext fields, with check constraints.
+
+-nr : Don't convert the dbo schema to public. By default, this conversion is done, as it converts MSSQL's default
+schema to PostgreSQL's default schema
+
+-num : Converts numeric (xxx,0) to the appropriate smallint, integer or bigint. It won't keep the constraint on
+the size of the scale of the numeric
 
 If you want to also import data:
 
