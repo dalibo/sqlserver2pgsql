@@ -34,7 +34,7 @@ foreach my $file (<*.sql>)
 		system("psql reg < /tmp/before > /tmp/before.log 2>&1");
 		if ($? >>8)
 		{
-			die "Before script failed for $file\n";
+			die "Before script failed for $file, with options $options\n";
 		}
 		system("psql reg < /tmp/after > /tmp/after.log 2>&1");
 		if ($? >>8)
@@ -44,7 +44,7 @@ foreach my $file (<*.sql>)
 			{
 				print;
 			}
-			die "After script failed for $file\n";
+			die "After script failed for $file, with options $options\n";
 		}
 		print "OK!\n";
 	}

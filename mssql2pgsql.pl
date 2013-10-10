@@ -627,40 +627,6 @@ sub parse_dump
 				next MAIN if ($contline =~ /^GO$/);
 			}
 		}
-		# Ignore USE, GO, and things that have no meaning for postgresql
-		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER|^SET ANSI_PADDING|CHECK CONSTRAINT|BEGIN|END/)
-		{
-			next;
-		}
-		elsif ($line =~ /^--/) # Comment
-		{
-			next;
-		}
-		# Don't know what it is. If you know, and it is worth converting, tell me :)
-		elsif ($line =~ /^EXEC .*bindrule/)
-		{
-			next;
-		}
-		# Ignore users and roles. Security models will probably be very different between the two databases
-		elsif ($line =~ /^CREATE (ROLE|USER)/)
-		{
-			next;
-		}
-		# Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
-		elsif ($line =~ /^IF NOT EXISTS/)
-		{
-			next;
-		}
-		# Ignore EXEC dbo.sp_executesql, for now only seen for a create view. Views sql command aren't executed directly, don't know why
-		elsif ($line =~ /^EXEC dbo.sp_executesql/)
-		{
-			next;
-		}
-		# Still on views: there are empty lines, and C-style comments
-		elsif ($line =~ /^\s*$/)
-		{
-			next;
-		}
 		# Now we parse the create view. It is multi-line, so the code looks like like create table: we parse everything until a line
 		# containing only a single quote (end of the dbo.sp_executesql)
 		elsif ($line =~ /^\s*(create\s*view)\s*(?:\[(\S+)\])?\.\[(.*?)\]\s*(.*)$/i)
@@ -898,6 +864,40 @@ sub parse_dump
 				die "Don't know what to do with this extendedproperty: $sqlproperty";
 			}
 		}
+		# Ignore USE, GO, and things that have no meaning for postgresql
+		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER|^SET ANSI_PADDING|CHECK CONSTRAINT|^BEGIN|^END/)
+		{
+			next;
+		}
+		elsif ($line =~ /^--/) # Comment
+		{
+			next;
+		}
+		# Don't know what it is. If you know, and it is worth converting, tell me :)
+		elsif ($line =~ /^EXEC .*bindrule/)
+		{
+			next;
+		}
+		# Ignore users and roles. Security models will probably be very different between the two databases
+		elsif ($line =~ /^CREATE (ROLE|USER)/)
+		{
+			next;
+		}
+		# Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
+		elsif ($line =~ /^IF NOT EXISTS/)
+		{
+			next;
+		}
+		# Ignore EXEC dbo.sp_executesql, for now only seen for a create view. Views sql command aren't executed directly, don't know why
+		elsif ($line =~ /^EXEC dbo.sp_executesql/)
+		{
+			next;
+		}
+		# Still on views: there are empty lines, and C-style comments
+		elsif ($line =~ /^\s*$/)
+		{
+			next;
+		}
 		else
 		{
 			die "Line <$line> ($.) not understood. This is a bug";
@@ -949,6 +949,7 @@ sub generate_schema
 	# For the rest, we iterate over schemas
 	# The tables, columns, etc... will be created in the before script, so there is no dependancy
 	# problem with constraints, that will be in the after script
+	# We have to do all domains before all tables
 	while (my ($schema,$refschema)=each %{$objects})
 	{
 		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
@@ -959,6 +960,10 @@ sub generate_schema
 		}
 
 		print BEFORE "\n"; # We change sections in the dump file
+	}
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 
 		# The tables
 		foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -980,7 +985,11 @@ sub generate_schema
 			}
 			print BEFORE "CREATE TABLE $schema.$table ( \n\t" . join (",\n\t",@colsdef) . ");\n\n";
 		}
+	}
 
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 		# We now add all "AFTER" objects
 		# We start with SEQUENCES, PKs and INDEXES (will be needed for FK)
 
@@ -1011,6 +1020,10 @@ sub generate_schema
 			$pkdef .= " PRIMARY KEY (" . join (',',@{$refpk->{COLS}}) . ");\n";
 			print AFTER $pkdef;
 		}
+	}
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 
 		# Now The UNIQUE constraints. They may be used for FK (if columns are not null)
 		foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1027,6 +1040,10 @@ sub generate_schema
 				print AFTER $consdef;
 			}
 		}
+	}
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 
 		# We have all we need for FKs now. We can put all other constraints (except PK of course)
 		foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1069,7 +1086,10 @@ sub generate_schema
 				}
 			}
 		}
-
+	}
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 		# Indexes
 		# They don't have a schema qualifier. But their table has, and they are in the same schema as their table
 		foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1088,7 +1108,10 @@ sub generate_schema
 				print AFTER $idxdef;
 			}
 		}
-
+	}
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 		# Default values
 		foreach my $table (sort keys %{$refschema->{TABLES}})
 		{
@@ -1099,7 +1122,10 @@ sub generate_schema
 				print AFTER "ALTER TABLE $schema.$table ALTER COLUMN $col SET DEFAULT " . $colref->{DEFAULT} . ";\n";
 			}
 		}
-
+	}
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 		# Comments on tables
 		foreach my $table (sort keys %{$refschema->{TABLES}})
 		{
@@ -1119,7 +1145,11 @@ sub generate_schema
 				}
 			}
 		}
+	}
 
+	while (my ($schema,$refschema)=each %{$objects})
+	{
+		$schema=dboreplace($schema); # If dbo, put into public, unless asked otherwise
 		# The views, and comments
 		foreach my $view (sort keys %{$refschema->{VIEWS}})
 		{
