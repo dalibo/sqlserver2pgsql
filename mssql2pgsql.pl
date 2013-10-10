@@ -143,7 +143,7 @@ sub convert_type
 			}
 			else
 			{
-				die "Called in a case sensitive, trying to generate a check constraint, failed. This is a bug!\n";
+				die "Called in a case sensitive, trying to generate a check constraint, failed. This is a bug!";
 			}
 		}
 	}
@@ -169,7 +169,7 @@ sub next_col_pos
 	}
 	else
 	{
-		die "We tried to add a column to an unknown table\n";
+		die "We tried to add a column to an unknown table";
 	}
 }
 
@@ -194,7 +194,7 @@ sub is_windows
 sub kettle_die
 {
 	my ($file)=@_;
-	die "You have to set up KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL=Y in $file.\nIf this file doesn't exist yet, start spoon from the kettle directory once.\n";
+	die "You have to set up KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL=Y in $file.\nIf this file doesn't exist yet, start spoon from the kettle directory once.";
 }
 
 
@@ -260,7 +260,7 @@ sub generate_kettle
 	# first, create the kettle directory
 	unless (-d $dir)
 	{
-		mkdir ($dir) or die "Cannot create $dir, $!\n";
+		mkdir ($dir) or die "Cannot create $dir";
 	}
 	# For each table in each schema in $objects, we generate a kettle file in the directory
 
@@ -314,14 +314,14 @@ sub generate_kettle
 			$newtemplate =~ s/__postgres_table_name__/$table/g;
 			$newtemplate =~ s/__postgres_schema_name__/$targetschema/g;
 			# Store this new transformation into its file
-			open FILE, ">$dir/$table.ktr" or die "Cannot write to $dir/$table.ktr, $!\n";
+			open FILE, ">$dir/$table.ktr" or die "Cannot write to $dir/$table.ktr";
 			print FILE $newtemplate;
 			close FILE;
 		}
 	}
 	# All transformations are done
 	# We have to create a job to launch everything in one go
-	open FILE, ">$dir/migration.kjb" or die "Cannot write to $dir/migration.kjb, $!\n";
+	open FILE, ">$dir/migration.kjb" or die "Cannot write to $dir/migration.kjb";
 	my $real_dir=getcwd;
 	my $entries='';
 	my $hops='';
@@ -437,7 +437,7 @@ sub parse_dump
 	# Open the input file or die. This first pass is to detect encoding, and open it correctly afterwards
 	my $data;
 	my $file;
-	open $file,"<$filename" or die "Cannot open $filename, $!\n";
+	open $file,"<$filename" or die "Cannot open $filename";
 	while (my $line=<$file>)
 	{
 		$data.=$line;
@@ -449,7 +449,7 @@ sub parse_dump
 	die $decoder unless ref($decoder);
 
 	# If we got to here, it means we have found the right decoder
-	open $file,"<:encoding(".$decoder->name.")",$filename or die "Cannot open $filename, $!\n";
+	open $file,"<:encoding(".$decoder->name.")",$filename or die "Cannot open $filename";
 
 	# Parsing loop variables
 	my $create_table=0; # Are we in a create table statement ?
@@ -495,7 +495,7 @@ sub parse_dump
 					else
 					{
 						# We need the number (or 2 numbers) in this qual
-						$colqual=~ /\((\d+(?:,\s*\d+)?)\)/ or die "Cannot parse colqual <$colqual>\n"; 
+						$colqual=~ /\((\d+(?:,\s*\d+)?)\)/ or die "Cannot parse colqual <$colqual>"; 
 						$colqual= "$1";
 					}
 				}
@@ -506,7 +506,7 @@ sub parse_dump
 				{
 					# We have an identity field. We remember the default value and
 					# initialize the sequence correctly in the after script
-					$isidentity=~ /IDENTITY\((\d+),\s*(\d+)\)/ or die "Cannot understand <$isidentity>\n";
+					$isidentity=~ /IDENTITY\((\d+),\s*(\d+)\)/ or die "Cannot understand <$isidentity>";
 					my $startseq=$1;
 					my $stepseq=$2;
 					my $seqname= lc("${tablename}_${colname}_seq");
@@ -539,7 +539,7 @@ sub parse_dump
 			}
 			else
 			{
-				die "I don't understand $line. This is a bug\n";
+				die "I don't understand $line. This is a bug";
 			}
 		}
 		elsif ($line =~ /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
@@ -754,13 +754,13 @@ sub parse_dump
 		# PG follows ansi, that is not an option. The end of the regexp is pasted from the create table
 		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD \[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( .*\(\d+,\s*\d+\))? (NOT NULL|NULL)$/)
 		{
-			die "$line: not understood. This is a bug\n";
+			die "$line: not understood. This is a bug";
 		}
 		# Table constraints
 		# Primary key. Multiline
 		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[(.*)\])? PRIMARY KEY (?:CLUSTERED)?/)
 		{
-			die "$line: not understood. This is a bug\n";
+			die "$line: not understood. This is a bug";
 			while (my $contline=read_and_clean($file))
 			{
 				next MAIN if ($contline =~ /^GO/);
@@ -791,7 +791,7 @@ sub parse_dump
 			}
 			else
 			{
-				die "not expected for a boolean: $line $. This is a bug\n"; # Get an error if the true/false hypothesis is wrong
+				die "not expected for a boolean: $line $. This is a bug"; # Get an error if the true/false hypothesis is wrong
 			}
 		}
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD\s+CONSTRAINT \[(.*)\] FOREIGN KEY\((.*?)\)/)
@@ -824,7 +824,7 @@ sub parse_dump
 				}
 				else
 				{
-					die "Cannot parse $fk $., in a FK. This is a bug\n";
+					die "Cannot parse $fk $., in a FK. This is a bug";
 				}
 			}
 		}
@@ -858,7 +858,7 @@ sub parse_dump
 			# We have all the extended property. Let's parse it.
 
 			# First step: what kind is it ? we are only interested in comments for now
-			$sqlproperty =~ /\@name=N'(.*?)'/ or die "Cannot find a name for this extended property: $sqlproperty\n";
+			$sqlproperty =~ /\@name=N'(.*?)'/ or die "Cannot find a name for this extended property: $sqlproperty";
 			my $propertyname=$1;
 			if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1)$/)
 			{
@@ -874,7 +874,7 @@ sub parse_dump
 				# I hope it will be sufficient (won't be if someone decides to end a comment with a quote)
 
 				$sqlproperty =~ /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s
-				  or die "Could not parse $sqlproperty. This is a bug.\n";
+				  or die "Could not parse $sqlproperty. This is a bug.";
 				my ($comment,$schema,$obj,$objname,$subobj,$subobjname)=($2,$4,$5,$6,$7,$8);
 				if ($obj eq 'TABLE' and not defined $subobj)
 				{
@@ -890,17 +890,17 @@ sub parse_dump
 				}
 				else
 				{
-					die "Cannot understand this comment: $sqlproperty\n";
+					die "Cannot understand this comment: $sqlproperty";
 				}
 			}
 			else
 			{
-				die "Don't know what to do with this extendedproperty: $sqlproperty\n";
+				die "Don't know what to do with this extendedproperty: $sqlproperty";
 			}
 		}
 		else
 		{
-			die "Line <$line> ($.) not understood. This is a bug\n";
+			die "Line <$line> ($.) not understood. This is a bug";
 		}
 	}
 	close $file;
@@ -912,9 +912,9 @@ sub generate_schema
 {
 	my ($before_file,$after_file,$unsure_file)=@_;
 	# Open the output files (except kettle, we'll do that at the end)
-	open BEFORE,">:utf8",$before_file or die "Cannot open $before_file, $!\n";
-	open AFTER,">:utf8",$after_file or die "Cannot open $after_file, $!\n";
-	open UNSURE,">:utf8",$unsure_file or die "Cannot open $unsure_file, $!\n";
+	open BEFORE,">:utf8",$before_file or die "Cannot open $before_file, $!";
+	open AFTER,">:utf8",$after_file or die "Cannot open $after_file, $!";
+	open UNSURE,">:utf8",$unsure_file or die "Cannot open $unsure_file, $!";
 	print BEFORE "\\set ON_ERROR_STOP\n";
 	print BEFORE "\\set ECHO all\n";
 	print BEFORE "BEGIN;\n";
@@ -1065,7 +1065,7 @@ sub generate_schema
 				else
 				{
 					# Shouldn't get there. it would mean I have forgotten a type of constraint
-					die "I couldn't translate a constraint. This is a bug\n";
+					die "I couldn't translate a constraint. This is a bug";
 				}
 			}
 		}
