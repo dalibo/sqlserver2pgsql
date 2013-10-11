@@ -337,8 +337,8 @@ sub generate_kettle
 		foreach my $table (sort {lc($a) cmp lc($b)}keys %{$refschema->{TABLES}})
 		{
 			my $tmp_entry=$job_entry;
-			# We build the entries with regexp substitutions:
-			$tmp_entry =~ s/__table_name__/$table/;
+			# We build the entries with regexp substitutions. The tablename contains the schema
+			$tmp_entry =~ s/__table_name__/${schema}_${table}/;
 			# Filename to use. We need the full path to the transformations
 			my $filename;
 			if ( $dir =~ /^(\\|\/)/) # Absolute path
@@ -365,7 +365,7 @@ sub generate_kettle
 			# We build the hop with the regexp too
 			my $tmp_hop=$job_hop;
 			$tmp_hop =~ s/__table_1__/$prev_node/;
-			$tmp_hop =~ s/__table_2__/$table/;
+			$tmp_hop =~ s/__table_2__/${schema}_${table}/;
 			if ($prev_node eq 'START')
 			{
 				# Specific to the start node. It has to be unconditional
@@ -374,7 +374,7 @@ sub generate_kettle
 			$hops.=$tmp_hop;
 			
 			# We increment everything for next loop
-			$prev_node=$table; # For the next hop
+			$prev_node="${schema}_${table}"; # For the next hop
 			$cur_vert_pos+=80; # To be pretty in spoon
 		}
 	}
