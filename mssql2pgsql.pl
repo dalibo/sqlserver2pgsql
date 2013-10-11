@@ -264,11 +264,12 @@ sub generate_kettle
 	}
 	# For each table in each schema in $objects, we generate a kettle file in the directory
 
-	while (my ($schema,$refschema)=each %{$objects})
+	foreach my $schema ( sort keys %{$objects})
 	{
+		my $refschema=$objects->{$schema};
 		my $targetschema=dboreplace($schema);
 	
-		foreach my $table (keys %{$refschema->{TABLES}})
+		foreach my $table (sort keys %{$refschema->{TABLES}})
 		{
 			# First, does this table have LOBs ? The template depends on this
 			my $newtemplate;
@@ -330,8 +331,9 @@ sub generate_kettle
 	                      # the job with spoon (kettle's gui)
 	# We sort only so that it will be easier to find a transformation in the job if one needed to
 	# edit it. It's also easier to track progress if tables are sorted alphabetically
-	while (my ($schema,$refschema)=each %{$objects})
+	foreach my $schema(sort keys %{$objects})
 	{
+		my $refschema=$objects->{$schema};
 		foreach my $table (sort {lc($a) cmp lc($b)}keys %{$refschema->{TABLES}})
 		{
 			my $tmp_entry=$job_entry;
