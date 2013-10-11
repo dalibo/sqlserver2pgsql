@@ -314,7 +314,7 @@ sub generate_kettle
 			$newtemplate =~ s/__postgres_table_name__/$table/g;
 			$newtemplate =~ s/__postgres_schema_name__/$targetschema/g;
 			# Store this new transformation into its file
-			open FILE, ">$dir/$table.ktr" or die "Cannot write to $dir/$table.ktr";
+			open FILE, ">$dir/$schema-$table.ktr" or die "Cannot write to $dir/$schema-$table.ktr";
 			print FILE $newtemplate;
 			close FILE;
 		}
@@ -341,11 +341,11 @@ sub generate_kettle
 			my $filename;
 			if ( $dir =~ /^(\\|\/)/) # Absolute path
 			{
-				$filename = $dir . '/' . $table . '.ktr';
+				$filename = $dir . '/' . $schema . '-' . $table . '.ktr';
 			}
 			else
 			{
-				$filename = $real_dir . '/' . $dir . '/' . $table . '.ktr';
+				$filename = $real_dir . '/' . $dir . '/' . $schema . '-' . $table . '.ktr';
 			}
 			# Different for windows and linux, obviously: we change / to \ for windows
 			unless (is_windows())
