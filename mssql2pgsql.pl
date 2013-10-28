@@ -28,13 +28,18 @@ use strict;
 # If you have to hack and want to understand its structure, just uncomment the call to Dumper() in the code
 my $objects;
 
-
-my ($sd,$sh,$sp,$su,$sw,$pd,$ph,$pp,$pu,$pw);# Connection args
-my $filename;# Filename passed as arg
-my $case_insensitive=0; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
+# These are global variables, from configuration file or command line arguments
+our ($sd,$sh,$sp,$su,$sw,$pd,$ph,$pp,$pu,$pw);# Connection args
+our $conf_file;
+our $filename;# Filename passed as arg
+our $case_insensitive=0; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
 			# If yes, we will generate citext with CHECK constraints...
-my $norelabel_dbo=0; # Passed as arg: should we convert DBO to public ?
-my $convert_numeric_to_int=0; # Should we convert numerics to int when possible ? (numeric (4,0) should be an int, for instance)
+our $norelabel_dbo=0; # Passed as arg: should we convert DBO to public ?
+our $convert_numeric_to_int=0; # Should we convert numerics to int when possible ? (numeric (4,0) should be an int, for instance)
+our $kettle;
+our $before_file;
+our $after_file;
+our $unsure_file;
 
 my $template;     # These two variables are loaded in the BEGIN block at the end of this file (they are very big
 my $template_lob; # putting them there won't pollute the code as much)
@@ -42,6 +47,58 @@ my $template_lob; # putting them there won't pollute the code as much)
 my ($job_header,$job_middle,$job_footer); # These are used to create the static parts of the job
 my ($job_entry,$job_hop); # These are used to create the dynamic parts of the job (XML file)
 
+
+# Opens the configuration file
+# Sets $sd $sh $sp $su $sw $pd $ph $pp $pu $pw when they are not set in the command line already
+# Also gets kettle parameters...
+sub parse_conf_file
+{
+	# Correspondance between conf_file parameter and program variable
+	# This is also used as the list of accepted parameters in the configuration file
+	my %parameters=( 'sql server database'      => 'sd',
+		         'sql server host'          => 'sh',
+			 'sql server port'          => 'sp',
+			 'sql server username'      => 'su',
+			 'sql server password'      => 'sw',
+			 'postgresql database'      => 'pd',
+			 'postgresql host'          => 'ph',
+			 'postgresql port'          => 'pp',
+			 'postgresql username'      => 'pu',
+			 'postgresql password'      => 'pw',
+			 'kettle directory'         => 'kettle',
+			 'before file'              => 'before_file',
+			 'after file'               => 'after_file',
+			 'unsure file'              => 'unsure_file',
+			 'sql server dump filename' => 'filename',
+			 'case insensitive'         => 'case_insensitive',
+			 'no relabel dbo'           => 'norelabel_dbo',
+			 'convert numeric to int'   => 'convert_numeric_to_int',
+			 	);
+	# Open the conf file or die
+	open CONF,$conf_file or die "Cannot open $conf_file";
+	while (my $line = <CONF>)
+	{
+		$line =~ s/#.*//; # Remove comments
+		$line =~ s/\s+=\s+//; # Remove whitespaces around the =
+		$line =~ s/\s+$//; # Remove trailing whitespaces
+		next if ($line =~ /^$/); # Empty line after comments have been removed
+		$line =~ /^(.*)=(.*)$/ or die "Cannot parse $line from $conf_file";
+		my ($param,$value)=($1,$2);
+		no strict 'refs'; # Using references by name, temporarily
+		unless (defined $parameters{$param})
+		{
+			die "Cannot understand parameter $param in $conf_file";
+		}
+		my $param_name=$parameters{$param};
+		if (defined $$param_name)
+		{
+			next; # Parameter overriden in command line
+		}
+		$$param_name=$value;
+		use strict 'refs';
+	}
+	close CONF;
+}
 
 # Converts numeric(4,0) to int
 sub convert_numeric_to_int
@@ -1249,17 +1306,14 @@ sub resolve_name_conflicts
 # Main
 
 # Parse command line
-my $kettle=0;
 my $help=0;
-my $before_file='';
-my $after_file='';
-my $unsure_file='';
 
 my $options = GetOptions ( "k=s"   => \$kettle,
 			   "b=s"   => \$before_file,
 			   "a=s"   => \$after_file,
 			   "u=s"   => \$unsure_file,
 		           "h"     => \$help,
+			   "conf=s"  => \$conf_file,
 			   "sd=s"  => \$sd,
 			   "sh=s"  => \$sh,
 			   "sp=s"  => \$sp,
@@ -1276,15 +1330,30 @@ my $options = GetOptions ( "k=s"   => \$kettle,
 			   "num"   => \$convert_numeric_to_int,
 			   );
 
-if (not $options or $help or not $before_file or not $after_file or not $unsure_file or not $filename)
+# We don't understand command line or have been asked for usage
+if (not $options or $help)
 {
 	usage();
 	exit 1;
 }
+# We have a configuration file. We load it, and set 
+# all we can find in it
+if ($conf_file) 
+{
+	parse_conf_file();
+}
+
+# We have no before, after, or unsure
+if (not $before_file or not $after_file or not $unsure_file or not $filename)
+{
+	usage();
+	exit 1;
+}
+# We have been asked for kettle, but the compulsory parameters are not there
 if ($kettle and (not $sd or not $sh or not $sp or not $su or not $sw or not $pd or not $ph or not $pp or not $pu or not $pw))
 {
 	usage();
-	print "You have to provide all connection information, if using -k\n";
+	print "You have to provide all connection information, if using -k or kettle directory set in configuration file\n";
 	exit 1;
 }
 
