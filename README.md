@@ -121,6 +121,12 @@ You've generated everything. Let's do the import:
 
 If you want to dig deeper into the kettle job, you can use kettle_report.pl to display the individual table's transfer performance. Then, if needed, you'll be able to modify the Kettle job to optimize it, using Spoon, Kettle's GUI
 
+You can also use a configuration file if you like:
+
+> ./mssql2pgsql.pl -conf example_conf_file -f mydatabase_dump.sql
+
+There is an example configuration file provided. You can also mix the configuration file with command line options. Command line options have the priority over values set in the configuration file.
+
 ================================
 FAQ:
 
