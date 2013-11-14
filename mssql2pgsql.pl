@@ -26,6 +26,7 @@ use strict;
 
 # $objects will contain the parsed structure of the SQL Server dump
 # If you have to hack and want to understand its structure, just uncomment the call to Dumper() in the code
+# There is just too many things in it, and it evolves all the time
 my $objects;
 
 # These are global variables, from configuration file or command line arguments
@@ -33,9 +34,9 @@ our ($sd,$sh,$sp,$su,$sw,$pd,$ph,$pp,$pu,$pw);# Connection args
 our $conf_file;
 our $filename;# Filename passed as arg
 our $case_insensitive=0; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
-			# If yes, we will generate citext with CHECK constraints...
-our $norelabel_dbo=0; # Passed as arg: should we convert DBO to public ?
-our $convert_numeric_to_int=0; # Should we convert numerics to int when possible ? (numeric (4,0) should be an int, for instance)
+			 # If yes, we will generate citext with CHECK constraints, that's the best we can do
+our $norelabel_dbo=0;    # Passed as arg: should we convert DBO to public ?
+our $convert_numeric_to_int=0; # Should we convert numerics to int when possible ? (numeric (4,0) could be converted an int, for instance)
 our $kettle;
 our $before_file;
 our $after_file;
@@ -43,9 +44,8 @@ our $unsure_file;
 
 my $template;     # These two variables are loaded in the BEGIN block at the end of this file (they are very big
 my $template_lob; # putting them there won't pollute the code as much)
-
 my ($job_header,$job_middle,$job_footer); # These are used to create the static parts of the job
-my ($job_entry,$job_hop); # These are used to create the dynamic parts of the job (XML file)
+my ($job_entry,$job_hop);                 # These are used to create the dynamic parts of the job (XML file)
 
 
 # Opens the configuration file
@@ -100,7 +100,7 @@ sub parse_conf_file
 	close CONF;
 }
 
-# Converts numeric(4,0) to int
+# Converts numeric(4,0) and similar to int, bigint, smallint
 sub convert_numeric_to_int
 {
 	my ($qual)=@_;
@@ -114,7 +114,8 @@ sub convert_numeric_to_int
 	return 'numeric($qual)';
 }
 
-
+# These are the no-brainer conversions
+# There is still a special case for text types and case insensitivity (see convert_type) though
 my %types=('int'=>'int',
            'nvarchar'=>'varchar',
            'nchar'=>'char',
@@ -209,6 +210,7 @@ sub convert_type
 
 # This gives the next column position for a table
 # It is used when we receive alter tables in the sql server dump
+# These tables are added at the end of the table, in %objects
 sub next_col_pos
 {
 	my ($schema,$table)=@_;
@@ -239,6 +241,7 @@ sub dboreplace
 	return 'dbo';
 }
 
+# Test if we are on windows. We will have to convert / to \ in the XML files
 sub is_windows
 {
 	if ($^O =~ /win/i)
@@ -248,6 +251,7 @@ sub is_windows
 	return 0;
 }
 
+# Die if kettle is not set up correctly
 sub kettle_die
 {
 	my ($file)=@_;
@@ -257,6 +261,7 @@ sub kettle_die
 
 # This sub checks ~/.kettle/kettle.properties to be sure
 # KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL=Y is in place
+# We die if not
 sub check_kettle_properties
 {
 	my $ok=0;
@@ -283,7 +288,7 @@ sub check_kettle_properties
 	return 0;
 }
 
-
+# Usage, obviously. Has to be kept in sync with new command line options
 sub usage
 {
 	print "$0 [-k kettle_output_directory] -b before_file -a after_file -u unsure_file -f sql_server_schema_file[-h] [-i]\n";
@@ -310,7 +315,7 @@ sub usage
 }
 
 # This function generates kettle transformations, and a kettle job running all these
-# transformations sequentially, for all the tables in sql server's dump
+# transformations sequentially, for all the tables, in all the schemas, in sql server's dump
 sub generate_kettle
 {
 	my ($dir)=@_;
@@ -385,7 +390,7 @@ sub generate_kettle
 	my $hops='';
 	my $prev_node='START';
 	my $cur_vert_pos=100; # Not that useful, it's just not to be ugly if someone wanted to open
-	                      # the job with spoon (kettle's gui)
+	                      # the job with spoon (kettle's gui) and work on it graphically
 	# We sort only so that it will be easier to find a transformation in the job if one needed to
 	# edit it. It's also easier to track progress if tables are sorted alphabetically
 	foreach my $schema(sort keys %{$objects})
@@ -448,15 +453,18 @@ sub generate_kettle
 
 # sql server's dump may contain multiline C style comments (/* */)
 # This sub reads a line and cleans it up, removing comments, \r, exec sp_executesql,...
+# It takes into account the status (in or out of comment) of the previous line, hence
+# the scoped $in_comment
 {
 	my $in_comment=0;
+
 	sub read_and_clean
 	{
 		my ($fd)=@_;
 		my $line=<$fd>;
 		return undef if (not defined $line);
 		$line =~ s/\r//g; # Remove \r from windows output
-		$line =~ s/EXEC(ute)?\s*(dbo|sys)\.sp_executesql( \@statement =)? N'//i; # Remove executesql… we are already executing sql
+		$line =~ s/EXEC(ute)?\s*(dbo|sys)\.sp_executesql( \@statement =)? N'//i; # Remove executesql… it's a bit weird in the SQL Server's dump
 		# If we are not in comment, we look for /*
 		# If we are in comment, we look for */, and we remove everything until */
 		if (not $in_comment)
@@ -491,6 +499,7 @@ sub generate_kettle
 }
 # Reads the dump passed as -f
 # Generates the $object structure
+# That's THE MAIN FUNCTION
 sub parse_dump
 {
 	# Open the input file or die. This first pass is to detect encoding, and open it correctly afterwards
@@ -508,6 +517,7 @@ sub parse_dump
 	die $decoder unless ref($decoder);
 
 	# If we got to here, it means we have found the right decoder
+	# or at least, perl thinks it has :)
 	open $file,"<:encoding(".$decoder->name.")",$filename or die "Cannot open $filename";
 
 	# Parsing loop variables
@@ -515,6 +525,7 @@ sub parse_dump
 	my $tablename=''; # If yes, what's the table name ?
 	my $schemaname=''; # If yes, what's the schema name ?
 	my $colnumber=0; # Column number (just to put the commas in the right places) ?
+
 	# Tagged because sql statements are often multi-line, so there are inner loops in some conditions
 	MAIN: while (my $line=read_and_clean($file))
 	{
@@ -633,6 +644,10 @@ sub parse_dump
 		}
 		elsif ($line =~ /^\s*(?:CONSTRAINT \[(.*)\] )?UNIQUE/)
 		{
+			# This is not forbidden by SQL, of course. I just never saw this in a sql server dump,
+			# so it should be an error for now (it will be syntaxically different if outside a table anyhow)
+			die "Unique key defined outside a table\n: $line" unless ($create_table); 
+
 			my $constraint; # We put everything inside this hashref, we'll push it into the constraint list later
 			$constraint->{TYPE}='UNIQUE';
 			if (defined $1)
@@ -655,9 +670,19 @@ sub parse_dump
 			}
 
 		}
+		elsif ($line =~ /^\) ON \[PRIMARY\]/)
+		{
+			# End of the table
+			$create_table=0;
+			$tablename='';
+		}
+		################################################################
+		# From HERE, these SQL commands are not linked to a create table
+		################################################################
+
 		elsif ($line =~ /CREATE SCHEMA \[(.*)\] AUTHORIZATION \[.*\]/)
 		{
-			$objects->{$1}=undef; # Nothing to add here, we create the undef schema
+			$objects->{$1}=undef; # Nothing to add here, we create the schema, and put undef in it for now
 		}
 		elsif ($line =~ /CREATE\s+PROC(?:EDURE)?\s+\[.*\]\.\[(.*)\]/i)
 		{
@@ -688,6 +713,8 @@ sub parse_dump
 		}
 		# Now we parse the create view. It is multi-line, so the code looks like like create table: we parse everything until a line
 		# containing only a single quote (end of the dbo.sp_executesql)
+		# The problem is that SQL Server seems to be spitting the original query used to create the view, not a normalized version
+		# of it, as PostgreSQL does. So we capture the query, and hope it works for now.
 		elsif ($line =~ /^\s*(create\s*view)\s*(?:\[(\S+)\])?\.\[(.*?)\]\s*(.*)$/i)
 		{
 			my $viewname=$3;
@@ -716,24 +743,19 @@ sub parse_dump
 				$sql.=$line_cont;
 			}
 		}
-		#
+		
 		# I only have seen types with added constraints ( create type foo varchar(50)) for now
 		# These are domains with PostgreSQL
 		elsif ($line =~ /^CREATE TYPE \[(.*?)\]\.\[(.*?)\] FROM \[(.*?)](?:\((\d+(?:,\s*\d+)?)?\))?/)
 		{
-			# Dependancy between types is not done for now. If the problem arises, it should be added
+			# Dependency between types is not done for now. If the problem arises, it should be added
 			my ($schema,$type,$origtype,$quals)=($1,$2,$3,$4);
 			my $newtype=convert_type($origtype,$quals,undef,undef,$type,$schema);
 			$objects->{$schema}->{DOMAINS}->{$type}=$newtype;
+
 			# We add them to known data types, as they probably will be used in table definitions
-			# but they point to themselves, with the schema corrected: we want them substituted by themselve
+			# but they point to themselves, with the schema corrected: we want them substituted by themselves
 			$types{$schema . '.' . $type}=dboreplace($schema) . '.' . $type; # We store the schema with it
-		}
-		elsif ($line =~ /^\) ON \[PRIMARY\]/)
-		{
-			# End of the table
-			$create_table=0;
-			$tablename='';
 		}
 		elsif ($line =~ /^CREATE (UNIQUE )?NONCLUSTERED INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/)
 		{
@@ -775,16 +797,18 @@ sub parse_dump
 				}
 			}
 		}
-		# Added table columns… this seems to appear in SQL Server when some columns have ansi padding, and some not.
-		# PG follows ansi, that is not an option. The end of the regexp is pasted from the create table
+		# Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
+		# PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
 		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD \[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( .*\(\d+,\s*\d+\))? (NOT NULL|NULL)$/)
 		{
+			# For now I don't know what to do with them. So die
 			die "$line: not understood. This is a bug";
 		}
 		# Table constraints
 		# Primary key. Multiline
 		elsif ($line =~ /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[(.*)\])? PRIMARY KEY (?:CLUSTERED)?/)
 		{
+			# Never seen one for now. The code is there though, in case, with a die for now
 			die "$line: not understood. This is a bug";
 			while (my $contline=read_and_clean($file))
 			{
@@ -792,6 +816,7 @@ sub parse_dump
 			}
 		}
 
+		# Default values. numeric, then text, then bit
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(((?:-)?\d+)\)\) FOR \[(.*)\]/)
 		{
 			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}=$3;
@@ -819,6 +844,7 @@ sub parse_dump
 				die "not expected for a boolean: $line $. This is a bug"; # Get an error if the true/false hypothesis is wrong
 			}
 		}
+		# FK constraint. It's multi line, we have to look for references, and what to do on update, detele, etc (I have only seen delete cascade for now)
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD\s+CONSTRAINT \[(.*)\] FOREIGN KEY\((.*?)\)/)
 		{
 			# This is a FK definition. We have the foreign table definition in next line.
@@ -853,6 +879,7 @@ sub parse_dump
 				}
 			}
 		}
+		# Check constraint. As it can be arbitrary code, we just get this code, and hope it will work on PG (it will be stored in a special script file)
 		elsif ($line =~ /ALTER TABLE \[(.*)\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD  CONSTRAINT \[(.*)\] CHECK  \(\((.*)\)\)/ )
 		{
 			# Check constraint. We'll do what we can, syntax may be different.
@@ -1357,14 +1384,20 @@ if ($kettle and (not $sd or not $sh or not $sp or not $su or not $sw or not $pd 
 	exit 1;
 }
 
+
+# Read SQL Server's dump file
 parse_dump();
+
+# Debug, uncomment:
 #print Dumper($objects);
 
+# Rename indexes if they conflict
 resolve_name_conflicts();
 
+# Create the 3 schema files for PostgreSQL
 generate_schema($before_file, $after_file, $unsure_file);
 
-
+# If asked, create the kettle job
 if ( $kettle and (defined $ENV{'HOME'} or defined $ENV{'USERPROFILE'} ) )
 {
 	check_kettle_properties();
