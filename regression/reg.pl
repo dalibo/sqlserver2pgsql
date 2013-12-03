@@ -26,7 +26,7 @@ foreach my $file (<*.sql>)
 		print "======================================\n";
 		system("dropdb reg");
 		system("createdb reg");
-		system(".././mssql2pgsql.pl -f $file -b /tmp/before -a /tmp/after -u /tmp/unsure -k /tmp/kettle -sd 1 -sh 1 -sp 1 -su 1 -sw 1 -pd 1 -ph 1 -pp 1 -pu 1 -pw 2 $options");
+		system(".././sqlserver2pgsql.pl -f $file -b /tmp/before -a /tmp/after -u /tmp/unsure -k /tmp/kettle -sd 1 -sh 1 -sp 1 -su 1 -sw 1 -pd 1 -ph 1 -pp 1 -pu 1 -pw 2 $options");
 		if ($? >>8)
 		{
 			die "Could not generate files for $file\n";

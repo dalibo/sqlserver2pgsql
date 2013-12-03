@@ -1,4 +1,4 @@
-mssql2pgsql
+sqlserver2pgsql
 ===========
 
 This is a migration tool to convert a Microsoft SQL Server Database into a PostgreSQL database, as automatically as possible.
@@ -88,7 +88,7 @@ the size of the scale of the numeric
 
 If you want to also import data:
 
-> ./mssql2pgsql.pl -b before.sql -a after.sql -u unsure.sql -k kettledir \ 
+> ./sqlserver2pgsql.pl -b before.sql -a after.sql -u unsure.sql -k kettledir \ 
   -sd source -sh 192.168.0.2 -sp 1433 -su dalibo -sw mysqlpass \
   -pd dest -ph localhost -pp 5432 -pu dalibo -pw mypgpass -f sql_server_schema.sql
 
@@ -123,7 +123,7 @@ If you want to dig deeper into the kettle job, you can use kettle_report.pl to d
 
 You can also use a configuration file if you like:
 
-> ./mssql2pgsql.pl -conf example_conf_file -f mydatabase_dump.sql
+> ./sqlserver2pgsql.pl -conf example_conf_file -f mydatabase_dump.sql
 
 There is an example configuration file provided. You can also mix the configuration file with command line options. Command line options have the priority over values set in the configuration file.
 
