@@ -146,3 +146,8 @@ What it this IGNORE NULLS I have to change in kettle.properties ?
 
 Because Kettle behaves by default the way Oracle behaves: for Oracle, a NULL and an empty string are the same. 
 You don't want this here, because neither SQL Server nor PostgreSQL do this.
+
+================================
+Licence: GPL v3
+
+http://www.gnu.org/licenses/gpl.html
