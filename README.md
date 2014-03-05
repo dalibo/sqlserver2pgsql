@@ -42,7 +42,7 @@ As Kettle is a Java program, you'll also need a recent JVM (Java 6 or 7 should d
 
 ==========================
 
-Ok, I have installed Kettle and Java, I have mssql2pg.pl, what do I do now ?
+Ok, I have installed Kettle and Java, I have sqlserver2pgsql.pl, what do I do now ?
 
 You'll need several things:
 
@@ -64,11 +64,11 @@ To get this SQL Dump, follow this procedure, in SQL Server's management interfac
   * Finish
 
 You'll get a file containing a SQL script. Get it on the server you'll want to
-run mssql2pg.pl from.
+run sqlserver2pgsql.pl from.
 
 If you just want to convert this schema, run:
 
-> mssql2pg -f my_sqlserver_script.txt -b name_of_before_script -a name_of_after_script -u name_of_unsure_script
+> sqlserver2pgsql.pl -f my_sqlserver_script.txt -b name_of_before_script -a name_of_after_script -u name_of_unsure_script
 
 The before script contains what is needed to import data (types, tables and columns).
 The after script contains the rest (indexes, constraints). It should be run
@@ -142,7 +142,7 @@ variable to a higher value (4096) for 4GB for instance.
 
 
 
-What it this IGNORE NULLS I have to change in kettle.properties ?
+What is this IGNORE NULLS I have to change in kettle.properties ?
 
 Because Kettle behaves by default the way Oracle behaves: for Oracle, a NULL and an empty string are the same. 
 You don't want this here, because neither SQL Server nor PostgreSQL do this.
