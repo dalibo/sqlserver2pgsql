@@ -119,20 +119,24 @@ sub convert_numeric_to_int
 my %types=('int'=>'int',
            'nvarchar'=>'varchar',
            'nchar'=>'char',
+           'char'=>'char',
 	   'varchar'=>'varchar',
+	   'text'=>'text',
 	   'char'=>'char',
 	   'smallint'=>'smallint',
 	   'tinyint'=>'smallint',
+	   'bigint'=>'bigint',
+	   'decimal'=>'numeric',
+	   'float'=>'double precision',
+	   'real'=>'real',
+	   'date'=>'date',
 	   'datetime'=>'timestamp',
 	   'smalldatetime'=>'timestamp',
-           'char'=>'char',
-	   'image'=>'bytea',
-	   'text'=>'text',
-	   'bigint'=>'bigint',
 	   'timestamp'=>'timestamp',
-	   'decimal'=>'numeric',
+	   'image'=>'bytea',
 	   'binary'=>'bytea',
 	   'varbinary'=>'bytea',
+	   'money'=>'numeric'
 	   );
 
 # Types with no qualifier, and no point in putting one
@@ -715,7 +719,7 @@ sub parse_dump
 		# containing only a single quote (end of the dbo.sp_executesql)
 		# The problem is that SQL Server seems to be spitting the original query used to create the view, not a normalized version
 		# of it, as PostgreSQL does. So we capture the query, and hope it works for now.
-		elsif ($line =~ /^\s*(create\s*view)\s*(?:\[(\S+)\])?\.\[(.*?)\]\s*(.*)$/i)
+		elsif ($line =~ /^\s*(create\s*view)\s*(?:\[(\S+)\]\.)?\[(.*?)\]\s*(.*)$/i)
 		{
 			my $viewname=$3;
 			my $schemaname;
@@ -727,14 +731,17 @@ sub parse_dump
 			{
 				$schemaname='dbo';
 			}
-			my $sql=$1 . ' ' . $3 . ' ' . $4 . "\n";
+			$schemaname=dboreplace($schemaname);
+
+			my $sql=$1 . ' ' . $schemaname . '.' . $3 . ' ' . $4 . "\n";
 			while (my $line_cont=read_and_clean($file))
 			{
-				if ($line_cont =~ /^\s*'\s*$/)
+				if ($line_cont =~ /^\s*'\s*|^GO$/) # We may have a quote if the view is 'quoted', or a real sql query
 				{
 					# The view definition is complete.
 					# We get rid of dbo. schemas
-					$sql =~ s/dbo\.//g; # We put this in the current schema
+					$sql =~ s/(dbo)\./dboreplace($1) . '.'/eg; # We put this in the replacement schema
+					
 					# Views will be stored without the full schema in them. We will
 					# have to generate the schema in the output file
 					$objects->{$schemaname}->{'VIEWS'}->{$viewname}->{SQL}=$sql;
@@ -757,7 +764,7 @@ sub parse_dump
 			# but they point to themselves, with the schema corrected: we want them substituted by themselves
 			$types{$schema . '.' . $type}=dboreplace($schema) . '.' . $type; # We store the schema with it
 		}
-		elsif ($line =~ /^CREATE (UNIQUE )?NONCLUSTERED INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/)
+		elsif ($line =~ /^CREATE (UNIQUE )?(NONCLUSTERED|CLUSTERED) INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/)
 		{
 			# Index creation. Index are namespaced per table in SQL Server, not in PostgreSQL
 			# In PostgreSQL they are in the same namespace as the tables, and in the same
@@ -765,9 +772,10 @@ sub parse_dump
 			# So we store them in $objects, attached to the table
 			# Conflicts will be sorted by resolve_name_conflicts() later 
 			my $isunique=$1;
-			my $idxname=$2;
-			my $schemaname=$3;
-			my $tablename=$4;
+			my $isclustered=$2;
+			my $idxname=$3;
+			my $schemaname=$4;
+			my $tablename=$5;
 			if ($isunique)
 			{
 				$objects->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}->{$idxname}->{UNIQUE}=1;
@@ -778,12 +786,12 @@ sub parse_dump
 			}
 			while (my $idx=read_and_clean($file))
 			{
-				# Exit when read a line beginning with ). The index is complete
-				if ($idx =~ /^\)/)
+				# Exit when read a line with a GO. The index is complete
+				if ($idx =~ /^GO/)
 				{
 					next MAIN;
 				}
-				next if ($idx =~ /^\(/); # Begin of the columns declaration
+				next if ($idx =~ /^\(|^\)/); # Begin/end of the columns declaration
 				if ($idx =~ /\t\[(.*)\] (ASC|DESC)(,)?/)
 				{
 					if (defined $2)
@@ -794,6 +802,11 @@ sub parse_dump
 					{
 						push @{$objects->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}->{$idxname}->{COLS}}, ("$1");
 					}
+				}
+				if ($idx =~ /^INCLUDE \(/)
+				{
+					next; # Nothing equivalent in PG. Maybe if the index isn't unique, these columns should be added?
+					      # Or we should print a warning
 				}
 			}
 		}
@@ -873,6 +886,10 @@ sub parse_dump
 				{
 					$constraint->{ON_DEL_CASC}=1;
 				}
+				elsif ($fk =~ /^ON UPDATE CASCADE\s*$/)
+				{
+					$constraint->{ON_UPD_CASC}=1;
+				}
 				else
 				{
 					die "Cannot parse $fk $., in a FK. This is a bug";
@@ -951,7 +968,7 @@ sub parse_dump
 			}
 		}
 		# Ignore USE, GO, and things that have no meaning for postgresql
-		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS ON|^SET QUOTED_IDENTIFIER|^SET ANSI_PADDING|CHECK CONSTRAINT|^BEGIN|^END/)
+		elsif ($line =~ /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS (ON|OFF)|^SET QUOTED_IDENTIFIER|^SET ANSI_PADDING|CHECK CONSTRAINT|^BEGIN|^END/)
 		{
 			next;
 		}
@@ -972,6 +989,19 @@ sub parse_dump
 		# Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
 		elsif ($line =~ /^IF NOT EXISTS/)
 		{
+			next;
+		}
+		# Ignore CREATE DATABASE: we hope that we are given a single database as an option. It is multiline.
+		# Ignore everything until next GO
+		# Ignore ALTER DATABASE for the same reason. The given parameters have no meaning in PG anyway
+		# Same for tests about full text search.
+		elsif ($line =~ /^(CREATE|ALTER) DATABASE|^IF \(1 = FULLTEXTSERVICEPROPERTY/)
+		{
+			while ($line !~ /^GO$/)
+			{
+				$line=read_and_clean($file);
+			}
+			# We read everything in the CREATE DATABASE. Back to work !
 			next;
 		}
 		# Ignore EXEC dbo.sp_executesql, for now only seen for a create view. Views sql command aren't executed directly, don't know why
@@ -1150,6 +1180,10 @@ sub generate_schema
 					if (defined $constraint->{ON_DEL_CASC} and $constraint->{ON_DEL_CASC})
 					{
 						$consdef.= " ON DELETE CASCADE";
+					}
+					if (defined $constraint->{ON_UPD_CASC} and $constraint->{ON_UPD_CASC})
+					{
+						$consdef.= " ON UPDATE CASCADE";
 					}
 					$consdef.=  ";\n";
 					print AFTER $consdef;
