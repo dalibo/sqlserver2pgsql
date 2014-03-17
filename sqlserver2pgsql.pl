@@ -806,8 +806,9 @@ sub parse_dump
 				}
 				if ($idx =~ /^INCLUDE \(/)
 				{
+					print STDERR "This index ($schemaname.$tablename.$idxname) has some include columns. This isn't supported in PostgreSQL.\n";
+					print STDERR "The columns in the INCLUDE clause have been ignored.\n";
 					next; # Nothing equivalent in PG. Maybe if the index isn't unique, these columns should be added?
-					      # Or we should print a warning
 				}
 			}
 		}
