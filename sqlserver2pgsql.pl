@@ -584,8 +584,11 @@ sub parse_dump
 					my $startseq=$1;
 					my $stepseq=$2;
 					my $seqname= lc("${tablename}_${colname}_seq");
-					$objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}->{$colname}->{DEFAULT}= 
+					# We get a sure default value.
+					$objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}->{$colname}->{DEFAULT}->{VALUE}= 
 					   "nextval('" . dboreplace(${schemaname}) . '.' . ${seqname}. "')";
+					$objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}->{$colname}->{DEFAULT}->{UNSURE}=0; 
+
 					$objects->{$schemaname}->{SEQUENCES}->{$seqname}->{START}=$startseq;
 					$objects->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}=$stepseq;
 					$objects->{$schemaname}->{SEQUENCES}->{$seqname}->{OWNERTABLE}=$tablename . "." . $colname;
@@ -831,16 +834,18 @@ sub parse_dump
 			}
 		}
 
-		# Default values. numeric, then text, then bit
+		# Default values. numeric, then text, then bit. These are 100% sure, they will parse in PG
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?((?:-)?\d+(?:\.\d+)?)\)?\) FOR \[(.*)\]/)
 		{
-			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}=$3;
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}=$3;
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}=0;
 			# Default value, for a numeric (yes sql server often puts it in another pair of parenthesis, don't know why)
 		}
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \('(.*)'\) FOR \[(.*)\]/)
 		{
 			# Default text value, text, between commas
-			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}="'$3'";
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}="'$3'";
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}=0;
 		}
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((\d)\) FOR \[(.*)\]/)
 		{
@@ -848,23 +853,32 @@ sub parse_dump
 			# convert to true/false
 			if ($3 eq '0')
 			{
-				$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}='false';
+				$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}='false';
+				$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}=0;
 			}
 			elsif ($3 eq '1')
 			{
-				$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}='true';
+				$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}='true';
+				$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}=0;
 			}
 			else
 			{
 				die "not expected for a boolean: $line $. This is a bug"; # Get an error if the true/false hypothesis is wrong
 			}
 		}
-		# Yes, we also get default NULL (what for ? :) )
-		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((NULL)\) FOR \[(.*)\]/)
+		# Yes, we also get default NULL (what for ? :) ), and sometimes with a different case
+		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(((?i)NULL)\) FOR \[(.*)\]/)
 		{
 			# NULL WITHOUT quotes around it !
-			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}='NULL';
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}='NULL';
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}=0;
 			
+		}
+		# And there are also constraints with functions and other strange code in them. Put them as unsure
+		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?(.*)\)?\) FOR \[(.*)\]/)
+		{
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}=$3;
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}=1;
 		}
 		# FK constraint. It's multi line, we have to look for references, and what to do on update, detele, etc (I have only seen delete cascade for now)
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD\s+CONSTRAINT \[(.*)\] FOREIGN KEY\((.*?)\)/)
@@ -1248,7 +1262,15 @@ sub generate_schema
 			{
 				my $colref=$refschema->{TABLES}->{$table}->{COLS}->{$col};
 				next unless (defined $colref->{DEFAULT});
-				print AFTER "ALTER TABLE $schema.$table ALTER COLUMN $col SET DEFAULT " . $colref->{DEFAULT} . ";\n";
+				my $definition= "ALTER TABLE $schema.$table ALTER COLUMN $col SET DEFAULT " . $colref->{DEFAULT}->{VALUE} . ";\n";
+				if ($colref->{DEFAULT}->{UNSURE})
+				{
+					print UNSURE $definition;
+				}
+				else
+				{
+					print AFTER $definition;
+				}
 			}
 		}
 	}
