@@ -648,7 +648,8 @@ sub parse_dump
 		}
 		elsif ($line =~ /^\s*(?:CONSTRAINT \[(.*)\] )?UNIQUE/)
 		{
-			# This is not forbidden by SQL, of course. I just never saw this in a sql server dump,
+			# This (having the constraint inside a create table )is not forbidden by SQL, 
+			# of course. I just never saw this in a sql server dump,
 			# so it should be an error for now (it will be syntaxically different if outside a table anyhow)
 			die "Unique key defined outside a table\n: $line" unless ($create_table); 
 
@@ -830,10 +831,10 @@ sub parse_dump
 		}
 
 		# Default values. numeric, then text, then bit
-		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(((?:-)?\d+)\)\) FOR \[(.*)\]/)
+		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?((?:-)?\d+(?:\.\d+)?)\)?\) FOR \[(.*)\]/)
 		{
 			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}=$3;
-			# Default value, for a numeric (yes sql server puts it in another pair of parenthesis, don't know why)
+			# Default value, for a numeric (yes sql server often puts it in another pair of parenthesis, don't know why)
 		}
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \('(.*)'\) FOR \[(.*)\]/)
 		{
@@ -856,6 +857,13 @@ sub parse_dump
 			{
 				die "not expected for a boolean: $line $. This is a bug"; # Get an error if the true/false hypothesis is wrong
 			}
+		}
+		# Yes, we also get default NULL (what for ? :) )
+		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((NULL)\) FOR \[(.*)\]/)
+		{
+			# NULL WITHOUT quotes around it !
+			$objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}='NULL';
+			
 		}
 		# FK constraint. It's multi line, we have to look for references, and what to do on update, detele, etc (I have only seen delete cascade for now)
 		elsif ($line =~ /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD\s+CONSTRAINT \[(.*)\] FOREIGN KEY\((.*?)\)/)
