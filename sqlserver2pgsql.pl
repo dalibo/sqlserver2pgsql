@@ -619,6 +619,23 @@ sub parse_dump
 				die "I don't understand $line. This is a bug";
 			}
 		}
+		# This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
+		# So just put it as a varchar, and issue a warning is STDOUT
+		elsif ($line =~ /^\t\[(.*)\]\s+AS\s+/) 
+		{
+			# We just get the column name
+			$colnumber++;
+			my $colname=$1;
+			my $coltype='varchar';
+			$objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}->{$colname}->{POS}=$colnumber;
+			$objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}->{$colname}->{TYPE}=$coltype;
+			$objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}->{$colname}->{NOT_NULL}=0;
+			# Big fat warning
+			print STDERR "Warning: There is a calculated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
+			print STDERR "\tFor now it has been declared as a varchar in PG, so that the values can be copied\n";
+			print STDERR "\tYou should change its type manually in the dump (sorry for that),\n";
+			print STDERR "\tand write a trigger to maintain this value\n";
+		}
 		elsif ($line =~ /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
 		{
 			# This is not forbidden by SQL, of course. I just never saw this in a sql server dump,
@@ -694,7 +711,7 @@ sub parse_dump
 		}
 		elsif ($line =~ /CREATE\s+PROC(?:EDURE)?\s+\[.*\]\.\[(.*)\]/i)
 		{
-			print STDERR "Procedure $1 ignored\n";
+			print STDERR "Warning: Procedure $1 ignored\n";
 			# We have to find next GO to know we are out of the procedure
 			while (my $contline=read_and_clean($file))
 			{
@@ -703,7 +720,7 @@ sub parse_dump
 		}
 		elsif ($line =~ /CREATE\s+FUNCTION\s+\[.*\]\.\[(.*)\]/i)
 		{
-			print STDERR "Function $1 ignored\n";
+			print STDERR "Warning: Function $1 ignored\n";
 			# We have to find next GO to know we are out of the procedure
 			while (my $contline=read_and_clean($file))
 			{
@@ -712,7 +729,7 @@ sub parse_dump
 		}
 		elsif ($line =~ /CREATE\s+TRIGGER\s+\[(.*)\]/i)
 		{
-			print STDERR "Trigger $1 ignored\n";
+			print STDERR "Warning: Trigger $1 ignored\n";
 			# We have to find next GO to know we are out of the procedure
 			while (my $contline=read_and_clean($file))
 			{
@@ -809,8 +826,8 @@ sub parse_dump
 				}
 				if ($idx =~ /^INCLUDE \(/)
 				{
-					print STDERR "This index ($schemaname.$tablename.$idxname) has some include columns. This isn't supported in PostgreSQL.\n";
-					print STDERR "The columns in the INCLUDE clause have been ignored.\n";
+					print STDERR "Warning: This index ($schemaname.$tablename.$idxname) has some include columns. This isn't supported in PostgreSQL.\n";
+					print STDERR "\tThe columns in the INCLUDE clause have been ignored.\n";
 					next; # Nothing equivalent in PG. Maybe if the index isn't unique, these columns should be added?
 				}
 			}
