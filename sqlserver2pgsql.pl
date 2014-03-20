@@ -232,6 +232,16 @@ sub convert_type
     return $rettype;
 }
 
+# This one will try to convert what can obviously be converted from transact to PG
+# Things such as getdate() which can become now()
+sub convert_transactsql_code
+{
+	my ($code)=@_;
+	$code =~ s/getdate\s*\(\)/now()/g;
+	return $code;
+}
+
+
 # This gives the next column position for a table
 # It is used when we receive alter tables in the sql server dump
 # These tables are added at the end of the table, in %objects
@@ -1090,7 +1100,7 @@ EOF
             )
         {
             $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
-                = $3;
+                = convert_transactsql_code($3);
             $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 1;
         }
