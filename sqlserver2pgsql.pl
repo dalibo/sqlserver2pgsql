@@ -1032,17 +1032,40 @@ EOF
             }
         }
 
-        # Default values. numeric, then text, then bit. These are 100% sure, they will parse in PG
+        # Default values. numeric, then text. These are 100% sure, they will parse in PG
+	# Sometimes there is a second pair of parenthesis. I don't even want to know why...
+	# Bit just need a little bit of work to be converted to 'true'/'false'
         elsif ($line =~
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?((?:-)?\d+(?:\.\d+)?)\)?\) FOR \[(.*)\]/
             )
         {
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
-                = $3;
+	    if ($objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{TYPE} eq 'boolean')
+	    {
+	        # Ok, it IS a boolean, and we have received a number
+                if ($3 eq '0')
+                {
+                    $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
+                        ->{VALUE} = 'false';
+                }
+                elsif ($3 eq '1')
+                {
+                    $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
+                        ->{VALUE} = 'true';
+                }
+                else
+                {
+                    # We should not get here: we have a numeric which isn't 0 or 1, and is supposed to be a boolean
+                    die "Got an unexpected boolean : $3, for line $line\n";
+                }
+	    }
+            else
+            {
+                $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+                    = $3;
+            }
             $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
 
-            # Default value, for a numeric (yes sql server often puts it in another pair of parenthesis, don't know why)
         }
         elsif ($line =~
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \('(.*)'\) FOR \[(.*)\]/
@@ -1053,32 +1076,6 @@ EOF
                 = "'$3'";
             $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
-        }
-        elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((\d)\) FOR \[(.*)\]/
-            )
-        {
-            # Weird one: for bit type, there is no supplementary parenthesis... for now, let's say this is a bit type, and
-            # convert to true/false
-            if ($3 eq '0')
-            {
-                $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
-                    ->{VALUE} = 'false';
-                $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
-                    ->{UNSURE} = 0;
-            }
-            elsif ($3 eq '1')
-            {
-                $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
-                    ->{VALUE} = 'true';
-                $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
-                    ->{UNSURE} = 0;
-            }
-            else
-            {
-                die "not expected for a boolean: $line $. This is a bug"
-                    ;    # Get an error if the true/false hypothesis is wrong
-            }
         }
 
         # Yes, we also get default NULL (what for ? :) ), and sometimes with a different case
@@ -1359,6 +1356,7 @@ sub generate_schema
 
         print BEFORE "\n";    # We change sections in the dump file
     }
+    # Tables and columns
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1389,7 +1387,7 @@ sub generate_schema
                 . ");\n\n";
         }
     }
-
+    # Sequences, PKs, Indexes
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1432,6 +1430,7 @@ sub generate_schema
             print AFTER $pkdef;
         }
     }
+    # Unique
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1455,6 +1454,7 @@ sub generate_schema
             }
         }
     }
+    # Other constraints
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1517,6 +1517,7 @@ sub generate_schema
             }
         }
     }
+    # Indexes.
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1541,6 +1542,7 @@ sub generate_schema
             }
         }
     }
+    # Default values
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1567,6 +1569,7 @@ sub generate_schema
             }
         }
     }
+    # Comments on tables and columns
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1591,7 +1594,7 @@ sub generate_schema
             }
         }
     }
-
+    # Views, and their comments
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1607,6 +1610,7 @@ sub generate_schema
             }
         }
     }
+    # Trigger functions
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
@@ -1622,7 +1626,7 @@ sub generate_schema
             print UNSURE "\$def\$;\n";
         }
     }
-
+    # Triggers
     while (my ($schema, $refschema) = each %{$objects})
     {
         $schema = dboreplace($schema)
