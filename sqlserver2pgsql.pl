@@ -1383,7 +1383,7 @@ sub generate_schema
         unless (relabel_schemas($schema) eq 'public'
                 or not defined $objects->{$schema})
         {
-            print BEFORE "CREATE SCHEMA $schema;\n";
+            print BEFORE "CREATE SCHEMA ",relabel_schemas($schema),";\n";
         }
     }
 
