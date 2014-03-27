@@ -1225,6 +1225,26 @@ EOF
                     die "Cannot understand this comment: $sqlproperty";
                 }
             }
+            elsif ($propertyname eq 'Dictionary')
+            {
+                # It seems to be another way to declare table comments. I hope this is right
+                $sqlproperty =~
+                    /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')/s
+                    or die "Could not parse $sqlproperty. This is a bug.";
+                my ($comment, $schema, $obj, $objname)
+                    = ($2, $4, $5, $6);
+                if ($obj eq 'TABLE')
+                {
+                    $objects->{$schema}->{TABLES}->{$objname}->{COMMENT} =
+                        $comment;
+                }
+                elsif ($obj eq 'SCHEMA')
+                {
+                    # There is no schema comments in PG. Just print a warning and ignore them
+                    print STDERR "Schema comment : <$comment> ignored (no schema comment in PG)\n";
+                }
+
+            }
             else
             {
                 die
