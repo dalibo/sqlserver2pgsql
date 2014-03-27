@@ -31,12 +31,11 @@ my $objects;
 our ($sd, $sh, $sp, $su, $sw, $pd, $ph, $pp, $pu, $pw);    # Connection args
 our $conf_file;
 our $filename;    # Filename passed as arg
-our $case_insensitive = 0
-    ; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
+our $case_insensitive; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
       # If yes, we will generate citext with CHECK constraints, that's the best we can do
-our $norelabel_dbo = 0;    # Passed as arg: should we convert DBO to public ?
-our $convert_numeric_to_int = 0
-    ; # Should we convert numerics to int when possible ? (numeric (4,0) could be converted an int, for instance)
+our $norelabel_dbo;    # Passed as arg: should we convert DBO to public ?
+our $relabel_schemas;
+our $convert_numeric_to_int; # Should we convert numerics to int when possible ? (numeric (4,0) could be converted an int, for instance)
 our $kettle;
 our $before_file;
 our $after_file;
@@ -76,6 +75,7 @@ sub parse_conf_file
                       'case insensitive'         => 'case_insensitive',
                       'no relabel dbo'           => 'norelabel_dbo',
                       'convert numeric to int'   => 'convert_numeric_to_int',
+                      'relabel schemas'          => 'relabel_schemas',
                      );
 
     # Open the conf file or die
@@ -87,7 +87,7 @@ sub parse_conf_file
         $line =~ s/\s+$//;       # Remove trailing whitespaces
         next
             if ($line =~ /^$/);  # Empty line after comments have been removed
-        $line =~ /^(.*)=(.*)$/ or die "Cannot parse $line from $conf_file";
+        $line =~ /^(.*?)=(.*)$/ or die "Cannot parse $line from $conf_file";
         my ($param, $value) = ($1, $2);
         no strict 'refs';        # Using references by name, temporarily
         unless (defined $parameters{$param})
@@ -102,6 +102,10 @@ sub parse_conf_file
         $$param_name = $value;
         use strict 'refs';
     }
+    # Hard coded default values
+    $case_insensitive=0 unless (defined ($case_insensitive));
+    $norelabel_dbo=0 unless (defined ($norelabel_dbo));
+    $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
     close CONF;
 }
 
@@ -267,15 +271,36 @@ sub next_col_pos
     }
 }
 
-# This relabels the string if it is dbo and we want to relabel it to public
-sub dboreplace
 {
-    my ($schema) = @_;
-    return $schema if ($schema ne 'dbo');
-    return 'public' unless ($norelabel_dbo);
-    return 'dbo';
-}
+    # This builds %relabel_schemas for use in the next function. Both are scoped so that %relabel_schemas is not visible from outside
+    my %relabel_schemas;
+    sub build_relabel_schemas
+    {
+        foreach my $pair (split (';',$relabel_schemas))
+        {
+            my @pair=split('=>',$pair);
+            unless (scalar(@pair)==2)
+            {
+                die "Cannot parse the schema list given as argument: <$relabel_schemas>\n";
+            }
+            $relabel_schemas{$pair[0]}=$pair[1];
+        }
+        # Don't forget dbo -> public if it was asked
+        unless ($norelabel_dbo)
+        {
+            $relabel_schemas{'dbo'}='public';
+        }
+    }
 
+
+    # This relabels the schemas
+    sub relabel_schemas
+    {
+        my ($schema) = @_;
+        return $schema unless (defined $relabel_schemas{$schema});
+        return $relabel_schemas{$schema};
+    }
+}
 # Test if we are on windows. We will have to convert / to \ in the XML files
 sub is_windows
 {
@@ -335,6 +360,9 @@ sub usage
         "-nr tells $0 not to convert the dbo schema to public. dbo will stay dbo\n";
     print
         "-num tells $0 to convert numeric xxx,0 to int, bigint, etc. Will not keep numeric scale and precision for the converted\n";
+    print
+        "-relabel_schemas gives a list of schemas to rename. For instance -relabel_schemas 'source1=>dest1;source2=>dest2'\n";
+    print "  -nr simply cancels the default dbo=>public remapping. Don't forget to put the remapping between quotes\n";
     print "before_file contains the structure\n";
     print "after_file contains index, constraints\n";
     print
@@ -372,7 +400,7 @@ sub generate_kettle
     foreach my $schema (sort keys %{$objects})
     {
         my $refschema    = $objects->{$schema};
-        my $targetschema = dboreplace($schema);
+        my $targetschema = relabel_schemas($schema);
 
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
@@ -675,7 +703,7 @@ sub parse_dump
                     $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
                         ->{$colname}->{DEFAULT}->{VALUE} =
                           "nextval('"
-                        . dboreplace(${schemaname}) . '.'
+                        . relabel_schemas(${schemaname}) . '.'
                         . ${seqname} . "')";
                     $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
                         ->{$colname}->{DEFAULT}->{UNSURE} = 0;
@@ -908,7 +936,7 @@ EOF
             {
                 $schemaname = 'dbo';
             }
-            $schemaname = dboreplace($schemaname);
+            $schemaname = relabel_schemas($schemaname);
 
             my $sql = $1 . ' ' . $schemaname . '.' . $3 . ' ' . $4 . "\n";
             while (my $line_cont = read_and_clean($file))
@@ -918,7 +946,7 @@ EOF
                 {
                     # The view definition is complete.
                     # We get rid of dbo. schemas
-                    $sql =~ s/(dbo)\./dboreplace($1) . '.'/eg
+                    $sql =~ s/(dbo)\./relabel_schemas($1) . '.'/eg
                         ;    # We put this in the replacement schema
 
                     # Views will be stored without the full schema in them. We will
@@ -945,7 +973,7 @@ EOF
 
             # We add them to known data types, as they probably will be used in table definitions
             # but they point to themselves, with the schema corrected: we want them substituted by themselves
-            $types{$schema . '.' . $type} = dboreplace($schema) . '.'
+            $types{$schema . '.' . $type} = relabel_schemas($schema) . '.'
                 . $type;    # We store the schema with it
         }
         elsif ($line =~
@@ -1352,7 +1380,7 @@ sub generate_schema
     # The schemas. don't create empty schema, sql server creates a schema per user, even if it ends empty
     foreach my $schema (sort keys %{$objects})
     {
-        unless (dboreplace($schema) eq 'public'
+        unless (relabel_schemas($schema) eq 'public'
                 or not defined $objects->{$schema})
         {
             print BEFORE "CREATE SCHEMA $schema;\n";
@@ -1365,7 +1393,7 @@ sub generate_schema
     # We have to do all domains before all tables
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # The user-defined types (domains, etc)
         foreach my $domain (sort keys %{$refschema->{DOMAINS}})
@@ -1379,7 +1407,7 @@ sub generate_schema
     # Tables and columns
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
 
         # The tables
@@ -1410,7 +1438,7 @@ sub generate_schema
     # Sequences, PKs, Indexes
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # We now add all "AFTER" objects
             # We start with SEQUENCES, PKs and INDEXES (will be needed for FK)
@@ -1423,7 +1451,7 @@ sub generate_schema
                 . " START WITH "
                 . $seqref->{START}
                 . " OWNED BY "
-                . dboreplace($seqref->{OWNERSCHEMA}) . '.'
+                . relabel_schemas($seqref->{OWNERSCHEMA}) . '.'
                 . $seqref->{OWNERTABLE} . ";\n";
         }
 
@@ -1453,7 +1481,7 @@ sub generate_schema
     # Unique
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
 
         # Now The UNIQUE constraints. They may be used for FK (if columns are not null)
@@ -1477,7 +1505,7 @@ sub generate_schema
     # Other constraints
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
 
         # We have all we need for FKs now. We can put all other constraints (except PK of course)
@@ -1499,7 +1527,7 @@ sub generate_schema
                           " FOREIGN KEY ("
                         . $constraint->{LOCAL_COLS} . ")"
                         . " REFERENCES "
-                        . dboreplace($constraint->{REMOTE_SCHEMA}) . '.'
+                        . relabel_schemas($constraint->{REMOTE_SCHEMA}) . '.'
                         . $constraint->{REMOTE_TABLE} . " ( "
                         . $constraint->{REMOTE_COLS} . ")";
                     if (defined $constraint->{ON_DEL_CASC}
@@ -1540,7 +1568,7 @@ sub generate_schema
     # Indexes.
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # Indexes
          # They don't have a schema qualifier. But their table has, and they are in the same schema as their table
@@ -1565,7 +1593,7 @@ sub generate_schema
     # Default values
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # Default values
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1592,7 +1620,7 @@ sub generate_schema
     # Comments on tables and columns
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # Comments on tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1617,7 +1645,7 @@ sub generate_schema
     # Views, and their comments
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # The views, and comments
         foreach my $view (sort keys %{$refschema->{VIEWS}})
@@ -1633,7 +1661,7 @@ sub generate_schema
     # Trigger functions
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # The trigger functions
         foreach my $triggerfunc (sort keys %{$refschema->{TRIG_FUNCTIONS}})
@@ -1649,7 +1677,7 @@ sub generate_schema
     # Triggers
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = dboreplace($schema)
+        $schema = relabel_schemas($schema)
             ;    # If dbo, put into public, unless asked otherwise
                  # triggers on tables, as these functions are declared now
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1729,10 +1757,10 @@ sub resolve_name_conflicts
                         # If a column has a custom type, it will be prefixed by schema
                         # The schema will be the destination schema: dbo may have been replaced by public
                         if ($col->{TYPE} eq
-                            (dboreplace($schema) . '.' . $domain))
+                            (relabel_schemas($schema) . '.' . $domain))
                         {
                             $col->{TYPE} =
-                                dboreplace($schema) . '.' . $domain . "2pgd";
+                                relabel_schemas($schema) . '.' . $domain . "2pgd";
                         }
                     }
                 }
@@ -1794,7 +1822,8 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "f=s"    => \$filename,
                          "i"      => \$case_insensitive,
                          "nr"     => \$norelabel_dbo,
-                         "num"    => \$convert_numeric_to_int,);
+                         "num"    => \$convert_numeric_to_int,
+                         "relabel_schemas=s" => \$relabel_schemas,);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)
@@ -1838,6 +1867,10 @@ if ($kettle
         "You have to provide all connection information, if using -k or kettle directory set in configuration file\n";
     exit 1;
 }
+
+# We need to build %relabel_schemas from $relabel_schemas
+build_relabel_schemas();
+
 
 # Read SQL Server's dump file
 parse_dump();
