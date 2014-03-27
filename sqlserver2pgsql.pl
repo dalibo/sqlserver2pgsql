@@ -1448,6 +1448,8 @@ sub generate_schema
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
             print AFTER "CREATE SEQUENCE $schema.$sequence INCREMENT BY "
                 . $seqref->{STEP}
+                . " MINVALUE "
+                . $seqref->{START}
                 . " START WITH "
                 . $seqref->{START}
                 . " OWNED BY "
