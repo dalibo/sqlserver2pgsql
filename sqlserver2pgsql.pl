@@ -40,6 +40,7 @@ our $kettle;
 our $before_file;
 our $after_file;
 our $unsure_file;
+our $keep_identifier_case;
 
 my $template
     ; # These two variables are loaded in the BEGIN block at the end of this file (they are very big
@@ -76,6 +77,7 @@ sub parse_conf_file
                       'no relabel dbo'           => 'norelabel_dbo',
                       'convert numeric to int'   => 'convert_numeric_to_int',
                       'relabel schemas'          => 'relabel_schemas',
+                      'keep identifier case'                => 'keep_identifier_case',
                      );
 
     # Open the conf file or die
@@ -106,6 +108,7 @@ sub parse_conf_file
     $case_insensitive=0 unless (defined ($case_insensitive));
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
+    $keep_identifier_case=0 unless (defined ($keep_identifier_case));
     close CONF;
 }
 
@@ -217,7 +220,7 @@ sub convert_type
                 my $constraint;
                 $constraint->{TYPE}  = 'CHECK_CITEXT';
                 $constraint->{TABLE} = $tablename;
-                $constraint->{TEXT}  = "char_length($colname) <= $sqlqual";
+                $constraint->{TEXT}  = "char_length(" . format_identifier($colname) . ") <= $sqlqual";
                 push @{$objects->{$schemaname}->{TABLES}->{$tablename}
                         ->{CONSTRAINTS}}, ($constraint);
             }
@@ -234,6 +237,34 @@ sub convert_type
         }
     }
     return $rettype;
+}
+
+# This function formats the identifiers (object name), putting double quotes around it
+# It also converts case if asked
+sub format_identifier
+{
+    my ($identifier)=@_;
+    croak "identifier not defined in format_identifier" unless (defined $identifier);
+    unless ($keep_identifier_case)
+    {
+        $identifier=lc($identifier);
+    }
+    # Now, we protect the identifier (similar to quote_ident in PG)
+    $identifier=~ s/"/""/g;
+    $identifier='"'.$identifier.'"';
+    return $identifier;
+}
+
+# This is a bit of a ugly hack: for indexes, in the column definition, there may be ASC/DESC at the end
+# Instead of changing the whole structure of the code, just detect this asc/desc and split it before calling format_identifier
+sub format_identifier_cols_index
+{
+    my ($idx_identifier)=@_;
+    $idx_identifier =~ /^(.*?)(?: (ASC|DESC))?$/;
+    my ($col,$order)=($1,$2);
+    my $formatted=format_identifier($col);
+    return $formatted unless defined ($order);
+    return $formatted . ' ' . $order;
 }
 
 # This one will try to convert what can obviously be converted from transact to PG
@@ -276,14 +307,17 @@ sub next_col_pos
     my %relabel_schemas;
     sub build_relabel_schemas
     {
-        foreach my $pair (split (';',$relabel_schemas))
+        if (defined $relabel_schemas)
         {
-            my @pair=split('=>',$pair);
-            unless (scalar(@pair)==2)
+            foreach my $pair (split (';',$relabel_schemas))
             {
-                die "Cannot parse the schema list given as argument: <$relabel_schemas>\n";
+                my @pair=split('=>',$pair);
+                unless (scalar(@pair)==2)
+                {
+                    die "Cannot parse the schema list given as argument: <$relabel_schemas>\n";
+                }
+                $relabel_schemas{$pair[0]}=$pair[1];
             }
-            $relabel_schemas{$pair[0]}=$pair[1];
         }
         # Don't forget dbo -> public if it was asked
         unless ($norelabel_dbo)
@@ -363,6 +397,8 @@ sub usage
     print
         "-relabel_schemas gives a list of schemas to rename. For instance -relabel_schemas 'source1=>dest1;source2=>dest2'\n";
     print "  -nr simply cancels the default dbo=>public remapping. Don't forget to put the remapping between quotes\n";
+    print
+        "-keep_identifier_case tells $0 to keep the case of sql server database objects (not advised). Default is to lowercase everything.\n";
     print "before_file contains the structure\n";
     print "after_file contains index, constraints\n";
     print
@@ -455,8 +491,10 @@ sub generate_kettle
             $newtemplate =~ s/__postgres_username__/$pu/g;
             $newtemplate =~ s/__postgres_password__/$pw/g;
             $newtemplate =~ s/__sqlserver_table_name__/$schema.$table/g;
-            $newtemplate =~ s/__postgres_table_name__/$table/g;
-            $newtemplate =~ s/__postgres_schema_name__/$targetschema/g;
+            my $pgtable=format_identifier($table);
+            my $pgschema=format_identifier($targetschema);
+            $newtemplate =~ s/__postgres_table_name__/$pgtable/g;
+            $newtemplate =~ s/__postgres_schema_name__/$pgschema/g;
 
             # Store this new transformation into its file
             open FILE, ">$dir/$schema-$table.ktr"
@@ -703,7 +741,7 @@ sub parse_dump
                     $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
                         ->{$colname}->{DEFAULT}->{VALUE} =
                           "nextval('"
-                        . relabel_schemas(${schemaname}) . '.'
+                        . format_identifier(relabel_schemas(${schemaname})) . '.'
                         . ${seqname} . "')";
                     $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
                         ->{$colname}->{DEFAULT}->{UNSURE} = 0;
@@ -713,7 +751,9 @@ sub parse_dump
                     $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
                         = $stepseq;
                     $objects->{$schemaname}->{SEQUENCES}->{$seqname}
-                        ->{OWNERTABLE} = $tablename . "." . $colname;
+                        ->{OWNERTABLE} = $tablename;
+                    $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+                        ->{OWNERCOL} = $colname;
                     $objects->{$schemaname}->{SEQUENCES}->{$seqname}
                         ->{OWNERSCHEMA} = $schemaname;
                 }
@@ -973,8 +1013,8 @@ EOF
 
             # We add them to known data types, as they probably will be used in table definitions
             # but they point to themselves, with the schema corrected: we want them substituted by themselves
-            $types{$schema . '.' . $type} = relabel_schemas($schema) . '.'
-                . $type;    # We store the schema with it
+            $types{$schema . '.' . $type} = format_identifier(relabel_schemas($schema)) . '.'
+                . format_identifier($type);    # We store the schema with it. And we do the case conversion, the quoting, etc right now
         }
         elsif ($line =~
             /^CREATE (UNIQUE )?(NONCLUSTERED|CLUSTERED) INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/
@@ -1140,9 +1180,10 @@ EOF
             my $table  = $2;
             my $schema = $1;
             $constraint->{TYPE}        = 'FK';
-            $constraint->{LOCAL_COLS}  = $4;
+            my @local_cols = split (/\s*,\s*/,$4); # Split around the comma. There may be whitespaces
+            @local_cols=map{s/^\[//;s/]$//;$_;} @local_cols; # Remove the brackets around the columns
+            $constraint->{LOCAL_COLS}=\@local_cols;
             $constraint->{LOCAL_TABLE} = $2;
-            $constraint->{LOCAL_COLS} =~ s/\[|\]//g;    # Remove brackets
 
             while (my $fk = read_and_clean($file))
             {
@@ -1154,7 +1195,10 @@ EOF
                 }
                 elsif ($fk =~ /^REFERENCES \[(.*)\]\.\[(.*)\] \((.*?)\)/)
                 {
-                    $constraint->{REMOTE_COLS}   = $3;
+
+                    my @remote_cols = split (/\s*,\s*/,$3); # Split around the comma. There may be whitespaces
+                    @remote_cols=map{s/^\[//;s/]$//;$_;} @remote_cols; # Remove the brackets around the columns
+                    $constraint->{REMOTE_COLS}=\@remote_cols;
                     $constraint->{REMOTE_TABLE}  = $2;
                     $constraint->{REMOTE_SCHEMA} = $1;
                     $constraint->{REMOTE_COLS} =~
@@ -1383,7 +1427,7 @@ sub generate_schema
         unless (relabel_schemas($schema) eq 'public'
                 or not defined $objects->{$schema})
         {
-            print BEFORE "CREATE SCHEMA ",relabel_schemas($schema),";\n";
+            print BEFORE "CREATE SCHEMA ",format_identifier(relabel_schemas($schema)),";\n";
         }
     }
 
@@ -1398,7 +1442,7 @@ sub generate_schema
                  # The user-defined types (domains, etc)
         foreach my $domain (sort keys %{$refschema->{DOMAINS}})
         {
-            print BEFORE "CREATE DOMAIN $schema.$domain "
+            print BEFORE "CREATE DOMAIN " . format_identifier($schema) . '.' . format_identifier($domain) . ' '
                 . $refschema->{DOMAINS}->{$domain} . ";\n";
         }
 
@@ -1423,14 +1467,14 @@ sub generate_schema
 
             {
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
-                my $coldef = $col . " " . $colref->{TYPE};
+                my $coldef = format_identifier($col) . " " . $colref->{TYPE};
                 if ($colref->{NOT_NULL})
                 {
                     $coldef .= ' NOT NULL';
                 }
                 push @colsdef, ($coldef);
             }
-            print BEFORE "CREATE TABLE $schema.$table ( \n\t"
+            print BEFORE "CREATE TABLE " . format_identifier($schema) . '.' . format_identifier($table) . "( \n\t"
                 . join(",\n\t", @colsdef)
                 . ");\n\n";
         }
@@ -1446,15 +1490,16 @@ sub generate_schema
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
-            print AFTER "CREATE SEQUENCE $schema.$sequence INCREMENT BY "
+            print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence) . " INCREMENT BY "
                 . $seqref->{STEP}
                 . " MINVALUE "
                 . $seqref->{START}
                 . " START WITH "
                 . $seqref->{START}
                 . " OWNED BY "
-                . relabel_schemas($seqref->{OWNERSCHEMA}) . '.'
-                . $seqref->{OWNERTABLE} . ";\n";
+                . format_identifier(relabel_schemas($seqref->{OWNERSCHEMA})) . '.'
+                . format_identifier($seqref->{OWNERTABLE}) . '.'
+                . format_identifier($seqref->{OWNERCOL}) . ";\n";
         }
 
         # Now PK. We have to go through all tables
@@ -1470,13 +1515,15 @@ sub generate_schema
                 #print STDERR "Warning: $table has no primary key.\n";
                 next;
             }
-            my $pkdef = "ALTER TABLE $schema.$table ADD";
+            my $pkdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
             if (defined $refpk->{NAME})
             {
-                $pkdef .= " CONSTRAINT " . $refpk->{NAME};
+                $pkdef .= " CONSTRAINT " . format_identifier($refpk->{NAME});
             }
+            # Create a list of formatted columns
+            my @collist=map{format_identifier($_)} @{$refpk->{COLS}};
             $pkdef .=
-                " PRIMARY KEY (" . join(',', @{$refpk->{COLS}}) . ");\n";
+                " PRIMARY KEY (" . join(',', @collist) . ");\n";
             print AFTER $pkdef;
         }
     }
@@ -1493,13 +1540,14 @@ sub generate_schema
                              @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
             {
                 next unless ($constraint->{TYPE} eq 'UNIQUE');
-                my $consdef = "ALTER TABLE $schema.$table ADD";
+                my $consdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
                 if (defined $constraint->{NAME})
                 {
-                    $consdef .= " CONSTRAINT " . $constraint->{NAME};
+                    $consdef .= " CONSTRAINT " . format_identifier($constraint->{NAME});
                 }
+                my @collist=map{format_identifier($_)} @{$constraint->{COLS}};
                 $consdef .=
-                    " UNIQUE (" . join(",", @{$constraint->{COLS}}) . ");\n";
+                    " UNIQUE (" . join(",", @collist) . ");\n";
                 print AFTER $consdef;
             }
         }
@@ -1517,21 +1565,24 @@ sub generate_schema
                              @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
             {
                 next if ($constraint->{TYPE} =~ /^UNIQUE|PK$/);
-                my $consdef = "ALTER TABLE $schema.$table ADD";
+                my $consdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
                 if (defined $constraint->{NAME})
                 {
-                    $consdef .= " CONSTRAINT " . $constraint->{NAME};
+                    $consdef .= " CONSTRAINT " . format_identifier($constraint->{NAME});
                 }
                 if ($constraint->{TYPE} eq
                     'FK')    # COLS are already a comma separated list
                 {
+                    # We need to convert the column list to protected names
+                    my @localcollist=map{format_identifier($_)} @{$constraint->{LOCAL_COLS}};
+                    my @remotecollist=map{format_identifier($_)} @{$constraint->{REMOTE_COLS}};
                     $consdef .=
                           " FOREIGN KEY ("
-                        . $constraint->{LOCAL_COLS} . ")"
+                        . join(',',@localcollist) . ")"
                         . " REFERENCES "
-                        . relabel_schemas($constraint->{REMOTE_SCHEMA}) . '.'
-                        . $constraint->{REMOTE_TABLE} . " ( "
-                        . $constraint->{REMOTE_COLS} . ")";
+                        . format_identifier(relabel_schemas($constraint->{REMOTE_SCHEMA})) . '.'
+                        . format_identifier($constraint->{REMOTE_TABLE}) . " ( "
+                        . join(',',@remotecollist) . ")";
                     if (defined $constraint->{ON_DEL_CASC}
                         and $constraint->{ON_DEL_CASC})
                     {
@@ -1586,8 +1637,8 @@ sub generate_schema
                 {
                     $idxdef .= " UNIQUE";
                 }
-                $idxdef .= " INDEX $index ON $schema.$table ("
-                    . join(",", @{$idxref->{COLS}}) . ");\n";
+                $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
+                    . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ");\n";
                 print AFTER $idxdef;
             }
         }
@@ -1606,7 +1657,7 @@ sub generate_schema
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
                 next unless (defined $colref->{DEFAULT});
                 my $definition =
-                    "ALTER TABLE $schema.$table ALTER COLUMN $col SET DEFAULT "
+                    "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ALTER COLUMN " . format_identifier($col) . " SET DEFAULT "
                     . $colref->{DEFAULT}->{VALUE} . ";\n";
                 if ($colref->{DEFAULT}->{UNSURE})
                 {
@@ -1629,7 +1680,7 @@ sub generate_schema
         {
             if (defined($refschema->{TABLES}->{$table}->{COMMENT}))
             {
-                print AFTER "COMMENT ON TABLE $schema.$table IS '"
+                print AFTER "COMMENT ON TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " IS '"
                     . $refschema->{TABLES}->{$table}->{COMMENT} . "';\n";
             }
             foreach
@@ -1638,7 +1689,7 @@ sub generate_schema
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
                 if (defined($colref->{COMMENT}))
                 {
-                    print AFTER "COMMENT ON COLUMN $schema.$table.$col IS '"
+                    print AFTER "COMMENT ON COLUMN " . format_identifier($schema) . '.' . format_identifier($table) . '.' . format_identifier($col) . " IS '"
                         . $colref->{COMMENT} . "';\n";
                 }
             }
@@ -1671,7 +1722,7 @@ sub generate_schema
             my $code = $refschema->{TRIG_FUNCTIONS}->{$triggerfunc}->{DEF};
 	    my $language = $refschema->{TRIG_FUNCTIONS}->{$triggerfunc}->{LANG};
             print UNSURE
-                "CREATE FUNCTION $schema.$triggerfunc() RETURNS trigger LANGUAGE $language AS \$def\$\n";
+                "CREATE FUNCTION " . format_identifier($schema) . '.' . $triggerfunc . "() RETURNS trigger LANGUAGE $language AS \$def\$\n";
             print UNSURE $code;
             print UNSURE "\$def\$;\n";
         }
@@ -1729,17 +1780,17 @@ sub resolve_name_conflicts
         # Store all known names
         foreach my $table (keys %{$refschema->{TABLES}})
         {
-            $known_names{$table} = 1;
+            $known_names{format_identifier($table)} = 1;
         }
 
         # We scan all types. For now, this tool only generates domains, so we scan domains
         foreach my $domain (keys %{$refschema->{DOMAINS}})
         {
-            if (not defined($known_names{$domain}))
+            if (not defined($known_names{format_identifier($domain)}))
             {
 
                 # Great. Just skip to the next and remember this name
-                $known_names{$domain} = 1;
+                $known_names{format_identifier($domain)} = 1;
             }
             else
             {
@@ -1758,14 +1809,16 @@ sub resolve_name_conflicts
 
                         # If a column has a custom type, it will be prefixed by schema
                         # The schema will be the destination schema: dbo may have been replaced by public
+                        # Be careful that they are stored formatted through format_identifier
                         if ($col->{TYPE} eq
-                            (relabel_schemas($schema) . '.' . $domain))
+                            (format_identifier(relabel_schemas($schema)) . '.' . format_identifier($domain)))
                         {
                             $col->{TYPE} =
-                                relabel_schemas($schema) . '.' . $domain . "2pgd";
+                                format_identifier(relabel_schemas($schema)) . '.' . format_identifier($domain . "2pgd");
                         }
                     }
                 }
+                $known_names{format_identifier($domain."2pgd")}=1;
             }
 
         }
@@ -1776,11 +1829,11 @@ sub resolve_name_conflicts
             foreach
                 my $idx (keys %{$refschema->{TABLES}->{$table}->{INDEXES}})
             {
-                if (not defined($known_names{$idx}))
+                if (not defined($known_names{format_identifier($idx)}))
                 {
 
                     # Great. Just skip to the next and remember this name
-                    $known_names{$idx} = 1;
+                    $known_names{format_identifier($idx)} = 1;
                 }
                 else
                 {
@@ -1793,7 +1846,7 @@ sub resolve_name_conflicts
                     delete $refschema->{TABLES}->{$table}->{INDEXES}->{$idx};
                     print STDERR
                         "Warning: I had to rename index $table.$idx to ${idx}2pgi because of naming conflicts in source schema $schema\n";
-                    $known_names{$idx . "2pgi"} = 1;
+                    $known_names{format_identifier($idx . "2pgi")} = 1;
                 }
             }
         }
@@ -1825,7 +1878,8 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "i"      => \$case_insensitive,
                          "nr"     => \$norelabel_dbo,
                          "num"    => \$convert_numeric_to_int,
-                         "relabel_schemas=s" => \$relabel_schemas,);
+                         "relabel_schemas=s" => \$relabel_schemas,
+                         "keep_identifier_case" =>\$keep_identifier_case,);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)

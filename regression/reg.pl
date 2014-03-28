@@ -7,7 +7,7 @@ use Data::Dumper;
 
 foreach my $file (<*.sql>)
 {
-	my @options_to_try=('-i','-nr','-num');
+	my @options_to_try=('-i','-nr','-num', '-keep_identifier_case');
 	my @all_combinations=('');
 	foreach my $option (@options_to_try)
 	{
@@ -26,7 +26,9 @@ foreach my $file (<*.sql>)
 		print "======================================\n";
 		system("dropdb reg");
 		system("createdb reg");
-		system(".././sqlserver2pgsql.pl -f $file -b /tmp/before -a /tmp/after -u /tmp/unsure -k /tmp/kettle -sd 1 -sh 1 -sp 1 -su 1 -sw 1 -pd 1 -ph 1 -pp 1 -pu 1 -pw 2 $options");
+                my $command=".././sqlserver2pgsql.pl -f $file -b /tmp/before -a /tmp/after -u /tmp/unsure -k /tmp/kettle -sd 1 -sh 1 -sp 1 -su 1 -sw 1 -pd 1 -ph 1 -pp 1 -pu 1 -pw 2 $options";
+                print $command,"\n";
+		system($command);
 		if ($? >>8)
 		{
 			die "Could not generate files for $file\n";

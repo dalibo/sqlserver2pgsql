@@ -24,4 +24,4 @@ case insensitive=1 # set it to 0 to generate a dump with citext and check constr
 no relabel dbo=1 # set it to 0 to convert the dbo schema to public
 convert numeric to int=1 # set it to 0 to keep numeric(xx,0) as numeric(xx,0). Will be converted to smallint, int or bigint by default
 relabel schemas=dbo=>foo;schema1=>bar
-
+keep identifier case=1 # keep case of database objects
