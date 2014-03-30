@@ -1433,7 +1433,7 @@ sub generate_schema
 
     # For the rest, we iterate over schemas
     # The tables, columns, etc... will be created in the before script, so there is no dependancy
-    # problem with constraints, that will be in the after script
+    # problem with constraints, that will be in the after script, except foreign keys which depend on unique indexes
     # We have to do all domains before all tables
     while (my ($schema, $refschema) = each %{$objects})
     {
@@ -1552,6 +1552,31 @@ sub generate_schema
             }
         }
     }
+    # Indexes. Unique indexes are needed before foreign key constraints
+    while (my ($schema, $refschema) = each %{$objects})
+    {
+        $schema = relabel_schemas($schema)
+            ;    # If dbo, put into public, unless asked otherwise
+                 # Indexes
+         # They don't have a schema qualifier. But their table has, and they are in the same schema as their table
+        foreach my $table (sort keys %{$refschema->{TABLES}})
+        {
+            foreach my $index (
+                       sort keys %{$refschema->{TABLES}->{$table}->{INDEXES}})
+            {
+                my $idxref =
+                    $refschema->{TABLES}->{$table}->{INDEXES}->{$index};
+                my $idxdef = "CREATE";
+                if ($idxref->{UNIQUE})
+                {
+                    $idxdef .= " UNIQUE";
+                }
+                $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
+                    . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ");\n";
+                print AFTER $idxdef;
+            }
+        }
+    }    
     # Other constraints
     while (my ($schema, $refschema) = each %{$objects})
     {
@@ -1618,31 +1643,7 @@ sub generate_schema
             }
         }
     }
-    # Indexes.
-    while (my ($schema, $refschema) = each %{$objects})
-    {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # Indexes
-         # They don't have a schema qualifier. But their table has, and they are in the same schema as their table
-        foreach my $table (sort keys %{$refschema->{TABLES}})
-        {
-            foreach my $index (
-                       sort keys %{$refschema->{TABLES}->{$table}->{INDEXES}})
-            {
-                my $idxref =
-                    $refschema->{TABLES}->{$table}->{INDEXES}->{$index};
-                my $idxdef = "CREATE";
-                if ($idxref->{UNIQUE})
-                {
-                    $idxdef .= " UNIQUE";
-                }
-                $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
-                    . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ");\n";
-                print AFTER $idxdef;
-            }
-        }
-    }
+
     # Default values
     while (my ($schema, $refschema) = each %{$objects})
     {
