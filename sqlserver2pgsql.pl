@@ -2345,7 +2345,7 @@ EOF
            <schema_name/>
            </partitioning>
     <connection>__sqlserver_db__</connection>
-    <sql>SELECT * FROM __sqlserver_table_name__ WITH(NOLOCK) __sqlserver_where_filter__</sql>
+    <sql>SELECT __sqlserver_table_cols__ FROM __sqlserver_table_name__ WITH(NOLOCK) __sqlserver_where_filter__</sql>
     <limit>0</limit>
     <lookup/>
     <execute_each_row>N</execute_each_row>
