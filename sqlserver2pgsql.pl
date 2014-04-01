@@ -450,6 +450,7 @@ sub generate_kettle
                 # Is the PK int and on only one column ?
                 # If yes, we can use several threads in kettle to read this table to
                 # improve performance
+                my $wherefilter;
                 if (defined($refschema->{TABLES}->{$table}->{PK}->{COLS})
                     and
                     scalar(@{$refschema->{TABLES}->{$table}->{PK}->{COLS}})
@@ -458,7 +459,7 @@ sub generate_kettle
                         ->{($refschema->{TABLES}->{$table}->{PK}->{COLS}->[0])
                         }->{TYPE} =~ /int$/))
                 {
-                    my $wherefilter =
+                    $wherefilter =
                           'WHERE '
                         . $refschema->{TABLES}->{$table}->{PK}->{COLS}->[0]
                         . '% ${Internal.Step.Unique.Count} = ${Internal.Step.Unique.Number}';
@@ -470,14 +471,31 @@ sub generate_kettle
 
                     # No way to do this optimization. Use standard template
                 {
+                    $wherefilter='';
                     $newtemplate =~ s/__sqlserver_where_filter__//;
                     $newtemplate =~ s/__sqlserver_copies__/1/g;
                 }
+                $newtemplate =~ s/__sqlserver_where_filter__/$wherefilter/;
             }
             else
             {
                 $newtemplate = $template;
             }
+
+            # Build the column list of the table to put into the SQL Server query
+            my @colsdef;
+            foreach my $col (
+                sort {
+                    $refschema->{TABLES}->{$table}->{COLS}->{$a}->{POS}
+                        <=> $refschema->{TABLES}->{$table}->{COLS}->{$b}
+                        ->{POS}
+                } (keys %{$refschema->{TABLES}->{$table}->{COLS}}))
+
+            {
+                my $coldef = "[$col] AS " . format_identifier($col);
+                push @colsdef,($coldef);
+            }
+            my $colsdef=join(',',@colsdef);
 
             # Substitute every connection placeholder with the real value
             $newtemplate =~ s/__sqlserver_database__/$sd/g;
@@ -491,6 +509,7 @@ sub generate_kettle
             $newtemplate =~ s/__postgres_username__/$pu/g;
             $newtemplate =~ s/__postgres_password__/$pw/g;
             $newtemplate =~ s/__sqlserver_table_name__/$schema.$table/g;
+            $newtemplate =~ s/__sqlserver_table_cols__/$colsdef/g;
             my $pgtable=format_identifier($table);
             my $pgschema=format_identifier($targetschema);
             $newtemplate =~ s/__postgres_table_name__/$pgtable/g;
@@ -499,6 +518,7 @@ sub generate_kettle
             # Store this new transformation into its file
             open FILE, ">$dir/$schema-$table.ktr"
                 or die "Cannot write to $dir/$schema-$table.ktr";
+            binmode(FILE,":utf8");
             print FILE $newtemplate;
             close FILE;
         }
@@ -2110,7 +2130,7 @@ BEGIN
            <schema_name/>
            </partitioning>
     <connection>__sqlserver_db__</connection>
-    <sql>SELECT * FROM __sqlserver_table_name__ WITH(NOLOCK)</sql>
+    <sql>SELECT __sqlserver_table_cols__ FROM __sqlserver_table_name__ WITH(NOLOCK)</sql>
     <limit>0</limit>
     <lookup/>
     <execute_each_row>N</execute_each_row>
