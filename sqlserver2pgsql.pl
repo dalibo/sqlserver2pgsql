@@ -307,6 +307,13 @@ sub next_col_pos
     my %relabel_schemas;
     sub build_relabel_schemas
     {
+       # Don't forget dbo -> public if it was asked (default)
+        unless ($norelabel_dbo)
+        {
+            $relabel_schemas{'dbo'}='public';
+        } 
+        # dbo can be overwritten in relabel_schema (the user will probably forget to deactivate the relabel).
+        # so we do the real relabeling after the norelabel_dbo, to overwrite
         if (defined $relabel_schemas)
         {
             foreach my $pair (split (';',$relabel_schemas))
@@ -319,11 +326,7 @@ sub next_col_pos
                 $relabel_schemas{$pair[0]}=$pair[1];
             }
         }
-        # Don't forget dbo -> public if it was asked
-        unless ($norelabel_dbo)
-        {
-            $relabel_schemas{'dbo'}='public';
-        }
+        
     }
 
 
