@@ -268,11 +268,11 @@ sub format_identifier_cols_index
 }
 
 # This one will try to convert what can obviously be converted from transact to PG
-# Things such as getdate() which can become now()
+# Things such as getdate() which can become CURRENT_TIMESTAMP 
 sub convert_transactsql_code
 {
 	my ($code)=@_;
-	$code =~ s/getdate\s*\(\)/now()/g;
+	$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/g;
 	return $code;
 }
 
