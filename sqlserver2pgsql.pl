@@ -1434,7 +1434,7 @@ sub generate_schema
     # if someone wants to start with an older version, it's their problem :)
     if ($case_insensitive)
     {
-        print BEFORE "CREATE EXTENSION citext;\n";
+        print BEFORE "CREATE EXTENSION IF NOT EXISTS citext;\n";
     }
 
     # Ok, we have parsed everything, and definitions are in $objects
@@ -1447,7 +1447,8 @@ sub generate_schema
         unless (relabel_schemas($schema) eq 'public'
                 or not defined $objects->{$schema})
         {
-            print BEFORE "CREATE SCHEMA ",format_identifier(relabel_schemas($schema)),";\n";
+            # Not compatible before 9.3. This is the logical target for this tool anyway
+            print BEFORE "CREATE SCHEMA IF NOT EXISTS ",format_identifier(relabel_schemas($schema)),";\n";
         }
     }
 
