@@ -392,6 +392,7 @@ sub usage
         "$0 [-k kettle_output_directory] -b before_file -a after_file -u unsure_file -f sql_server_schema_file[-h] [-i]\n";
     print
         "\nExpects a SQL Server SQL structure dump as -f (preferably unicode)\n";
+    print "-conf uses a conf file. All options below can also be set there. Command line options will overwrite conf options\n";
     print "-i tells $0 to create a case-insensitive PostgreSQL schema\n";
     print
         "-nr tells $0 not to convert the dbo schema to public. dbo will stay dbo\n";

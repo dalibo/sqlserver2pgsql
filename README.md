@@ -75,6 +75,9 @@ The after script contains the rest (indexes, constraints). It should be run
 after data is imported. The unsure script contains objects where we attempt to migrate, but cannot guarantee,
 such as views.
 
+-conf uses a conf file. All options below can also be set there. Command line options will overwrite conf options.
+There is an example of such a conf file (example_conf_file)
+
 You can also use the -i, -num and/or -nr options:
 
 -i  : Generate an "ignore case" schema, using citext, to emulate MSSQL's case insensitive collation.
