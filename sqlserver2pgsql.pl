@@ -1336,8 +1336,8 @@ EOF
                 }
                 elsif ($obj eq 'SCHEMA')
                 {
-                    # There is no schema comments in PG. Just print a warning and ignore them
-                    print STDERR "Schema comment : <$comment> ignored (no schema comment in PG)\n";
+                    # Never met one for now. Die and ask to send me an example
+                    die "Schema comment : <$comment> not understood. Please send a bug report\n";
                 }
 
             }
