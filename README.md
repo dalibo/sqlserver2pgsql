@@ -84,7 +84,7 @@ You can also use the -i, -num and/or -nr options:
 schema to PostgreSQL's default schema
 
 -relabel_schemas is a list of schemas to remap. The syntax is : 'source1=>dest1;source2=>dest2'. Don't forget to quote this option or the shell might alter it
-there is a default dbo=>public remapping, that can be cancelled with -nr
+there is a default dbo=>public remapping, that can be cancelled with -nr. Use double quotes instead of simple quotes on Windows.
 
 -num : Converts numeric (xxx,0) to the appropriate smallint, integer or bigint. It won't keep the constraint on
 the size of the scale of the numeric
