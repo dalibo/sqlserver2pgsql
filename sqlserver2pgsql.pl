@@ -996,8 +996,6 @@ EOF
                 $sql .= $line_cont;
             }
         }
-
-        # I only have seen types with added constraints ( create type foo varchar(50)) for now
         # These are domains with PostgreSQL
         elsif ($line =~
             /^CREATE TYPE \[(.*?)\]\.\[(.*?)\] FROM \[(.*?)](?:\((\d+(?:,\s*\d+)?)?\))?/
@@ -1092,10 +1090,6 @@ EOF
         {
             # Never seen one for now. The code is there though, in case, with a die for now
             die "$line: not understood. This is a bug";
-            while (my $contline = read_and_clean($file))
-            {
-                next MAIN if ($contline =~ /^GO/);
-            }
         }
 
         # Default values. numeric, then text. These are 100% sure, they will parse in PG
@@ -1169,19 +1163,25 @@ EOF
         }
 
         # FK constraint. It's multi line, we have to look for references, and what to do on update, delete, etc (I have only seen delete cascade for now)
+        # Constraint name is optionnal
         elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD\s+CONSTRAINT \[(.*)\] FOREIGN KEY\((.*?)\)/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD(?:\s+CONSTRAINT \[(.*)\])? FOREIGN KEY\((.*?)\)/
             )
         {
             # This is a FK definition. We have the foreign table definition in next line.
             my $constraint;
             my $table  = $2;
             my $schema = $1;
+            my $consname= $3;
             $constraint->{TYPE}        = 'FK';
             my @local_cols = split (/\s*,\s*/,$4); # Split around the comma. There may be whitespaces
             @local_cols=map{s/^\[//;s/]$//;$_;} @local_cols; # Remove the brackets around the columns
             $constraint->{LOCAL_COLS}=\@local_cols;
             $constraint->{LOCAL_TABLE} = $2;
+            if (defined $consname)
+            {
+                $constraint->{NAME}=$consname;
+            }
 
             while (my $fk = read_and_clean($file))
             {
