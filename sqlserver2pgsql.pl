@@ -236,6 +236,16 @@ sub convert_type
             }
         }
     }
+    # We special case SQL Server's TABLE types: they should be converted into an array
+    if ( $sqlstype =~ /^(\S+)\.(\S+)$/)
+    {
+        # This is a namespaced type. So we check if this is a special array
+        my ($schema,$type)=($1,$2);
+        if (defined($objects->{$schema}->{TABLE_TYPES}->{$type}))
+        {
+            $rettype=$rettype.'[]';
+        }
+    }
     return $rettype;
 }
 
@@ -693,7 +703,7 @@ sub parse_dump
         # Create table, obviously. There will be other lines below for the rest of the table definition
         if ($line =~ /^CREATE TABLE \[(.*)\]\.\[(.*)\]\(/)
         {
-            my $schemaname   = $1;
+            my $schemaname   = relabel_schemas($1);
             my $tablename    = $2;
             my $colnumber    = 0;
             $objects->{$schemaname}->{TABLES}->{$tablename}->{haslobs} = 0;
@@ -714,7 +724,7 @@ sub parse_dump
 
                         # The datatype is a user defined datatype
                         # It has already been declared before. We just need to find it
-                        $coltype = $coltypeschema . '.' . $coltype;
+                        $coltype = relabel_schemas($coltypeschema) . '.' . $coltype;
                     }
                     my $colqual    = $4;
                     my $isidentity = $5;
@@ -915,15 +925,18 @@ EOF
                     # End of the table
                     next MAIN;
                 }
+                else
+                {
+                    die "Cannot understand $line\n";
+                }
             }
         }
         ################################################################
         # From HERE, these SQL commands are not linked to a create table
         ################################################################
-
         elsif ($line =~ /CREATE SCHEMA \[(.*)\] AUTHORIZATION \[.*\]/)
         {
-            $objects->{$1} = undef
+            $objects->{relabel_schemas($1)} = undef
                 ; # Nothing to add here, we create the schema, and put undef in it for now
         }
         elsif ($line =~ /CREATE\s+PROC(?:EDURE)?\s+\[.*\]\.\[(.*)\]/i)
@@ -1001,17 +1014,74 @@ EOF
             /^CREATE TYPE \[(.*?)\]\.\[(.*?)\] FROM \[(.*?)](?:\((\d+(?:,\s*\d+)?)?\))?/
             )
         {
-            # Dependency between types is not done for now. If the problem arises, it should be added
+            # Dependency between types is not done for now. If the problem arises, it may be added
             my ($schema, $type, $origtype, $quals) = ($1, $2, $3, $4);
+            $schema=relabel_schemas($schema);
             my $newtype =
                 convert_type($origtype, $quals, undef, undef, $type, $schema);
             $objects->{$schema}->{DOMAINS}->{$type} = $newtype;
 
             # We add them to known data types, as they probably will be used in table definitions
             # but they point to themselves, with the schema corrected: we want them substituted by themselves
-            $types{$schema . '.' . $type} = format_identifier(relabel_schemas($schema)) . '.'
+            $types{$schema . '.' . $type} = format_identifier($schema) . '.'
                 . format_identifier($type);    # We store the schema with it. And we do the case conversion, the quoting, etc right now
         }
+        # These are like arrays of composite (with added functionnality, but we'll skip these
+        # This will look like a table, but we'll ignore anything that isn't a column definition
+        # If any of the type isn't a base type, this will die. But anyway, we wouldn't be able to convert properly
+        elsif ($line =~ /^CREATE TYPE \[(.*)\]\.\[(.*)\] AS TABLE\(/)
+        {
+            my $schema=relabel_schemas($1);
+            my $typename=$2;
+            my $newbasetype='';
+            my @cols_newbasetype;
+            my $colname;
+            my $type;
+            my $typequal;
+            my $newtype;
+            TYPE: while (my $typeline= read_and_clean($file))
+            {
+                if ($typeline =~ /^\t\[(.*)\] \[(.*)\](?: \((\d+(?:,\d+)?)\))?(?: (?:NOT )?NULL),?$/)
+                {
+                    # This is another column for this type
+                    $colname=$1;
+                    $type=$2;
+                    $typequal=$3;
+                    $newtype =
+                       convert_type($type,   $typequal, undef, undef, undef, undef);
+                    push @cols_newbasetype,(format_identifier($colname) . ' ' . $newtype);
+                }
+                elsif ( $typeline =~ /PRIMARY KEY/)
+                {
+                    print STDERR "Warning: TABLE type in SQL Server, input line $., ignored a primary key constraint\n";
+                    # Let's skip everything till next parenthesis (probably the end)
+                    while (my $to_skip= read_and_clean($file))
+                    {
+                        next TYPE if ($to_skip =~ /\)/);
+                    }
+                }
+                elsif ($typeline =~ /^\)$/) # We reached the end of the type def
+                {
+                    next;
+                }
+                elsif ($typeline =~ /^GO$/)
+                {
+                    # We reached the end. We add this new type
+                    # create the new type declaration
+                    $newbasetype=join(",\n",@cols_newbasetype);
+                    $objects->{$schema}->{TABLE_TYPES}->{$typename}=$newbasetype;
+                    # We add this to known data types, it will be used in table definitions
+                    $types{$schema . '.' . $typename} = format_identifier($schema) . '.'
+                        . format_identifier($typename);  # We store the schema with it. And we do the case conversion, the quoting, etc right now
+                    next MAIN;
+                }
+                else
+                {
+                    die "Cannot understand $type. This is a bug";
+                }
+            }
+        }
+
         elsif ($line =~
             /^CREATE (UNIQUE )?(NONCLUSTERED|CLUSTERED) INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/
             )
@@ -1024,7 +1094,7 @@ EOF
             my $isunique    = $1;
             my $isclustered = $2;
             my $idxname     = $3;
-            my $schemaname  = $4;
+            my $schemaname  = relabel_schemas($4);
             my $tablename   = $5;
             if ($isunique)
             {
@@ -1099,17 +1169,17 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?((?:-)?\d+(?:\.\d+)?)\)?\) FOR \[(.*)\]/
             )
         {
-	    if ($objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{TYPE} eq 'boolean')
+	    if ($objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{TYPE} eq 'boolean')
 	    {
 	        # Ok, it IS a boolean, and we have received a number
                 if ($3 eq '0')
                 {
-                    $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
+                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
                         ->{VALUE} = 'false';
                 }
                 elsif ($3 eq '1')
                 {
-                    $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
+                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
                         ->{VALUE} = 'true';
                 }
                 else
@@ -1120,10 +1190,10 @@ EOF
 	    }
             else
             {
-                $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+                $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                     = $3;
             }
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
 
         }
@@ -1132,9 +1202,9 @@ EOF
             )
         {
             # Default text value, text, between commas
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                 = "'$3'";
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
         }
 
@@ -1144,9 +1214,9 @@ EOF
             )
         {
             # NULL WITHOUT quotes around it !
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                 = 'NULL';
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
 
         }
@@ -1156,9 +1226,9 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?(.*)\)?\) FOR \[(.*)\]/
             )
         {
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                 = convert_transactsql_code($3);
-            $objects->{$1}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 1;
         }
 
@@ -1171,7 +1241,7 @@ EOF
             # This is a FK definition. We have the foreign table definition in next line.
             my $constraint;
             my $table  = $2;
-            my $schema = $1;
+            my $schema = relabel_schemas($1);
             my $consname= $3;
             $constraint->{TYPE}        = 'FK';
             my @local_cols = split (/\s*,\s*/,$4); # Split around the comma. There may be whitespaces
@@ -1198,7 +1268,7 @@ EOF
                     @remote_cols=map{s/^\[//;s/]$//;$_;} @remote_cols; # Remove the brackets around the columns
                     $constraint->{REMOTE_COLS}=\@remote_cols;
                     $constraint->{REMOTE_TABLE}  = $2;
-                    $constraint->{REMOTE_SCHEMA} = $1;
+                    $constraint->{REMOTE_SCHEMA} = relabel_schemas($1);
                     $constraint->{REMOTE_COLS} =~
                         s/\[|\]//g;    # Get rid of square brackets
                 }
@@ -1226,7 +1296,7 @@ EOF
             my $constraint;
             my $table   = $2;
             my $constxt = $4;
-            my $schema  = $1;
+            my $schema  = relabel_schemas($1);
             $constraint->{TABLE} = $table;
             $constraint->{NAME}  = $3;
             $constraint->{TYPE}  = 'CHECK';
@@ -1275,6 +1345,7 @@ EOF
                     or die "Could not parse $sqlproperty. This is a bug.";
                 my ($comment, $schema, $obj, $objname, $subobj, $subobjname)
                     = ($2, $4, $5, $6, $7, $8);
+                $schema=relabel_schemas($schema);
                 if ($obj eq 'TABLE' and not defined $subobj)
                 {
                     $objects->{$schema}->{TABLES}->{$objname}->{COMMENT} =
@@ -1303,6 +1374,7 @@ EOF
                     or die "Could not parse $sqlproperty. This is a bug.";
                 my ($comment, $schema, $obj, $objname)
                     = ($2, $4, $5, $6);
+                $schema=relabel_schemas($schema);
                 if ($obj eq 'TABLE')
                 {
                     $objects->{$schema}->{TABLES}->{$objname}->{COMMENT} =
@@ -1422,23 +1494,33 @@ sub generate_schema
     # The schemas. don't create empty schema, sql server creates a schema per user, even if it ends empty
     foreach my $schema (sort keys %{$objects})
     {
-        unless (relabel_schemas($schema) eq 'public'
+        unless ($schema eq 'public'
                 or not defined $objects->{$schema})
         {
             # Not compatible before 9.3. This is the logical target for this tool anyway
-            print BEFORE "CREATE SCHEMA IF NOT EXISTS ",format_identifier(relabel_schemas($schema)),";\n";
+            print BEFORE "CREATE SCHEMA IF NOT EXISTS ",format_identifier($schema),";\n";
         }
     }
 
-    # For the rest, we iterate over schemas
+    # For the rest, we iterate over schemas, except for array types (no point in complicating this)
     # The tables, columns, etc... will be created in the before script, so there is no dependancy
     # problem with constraints, that will be in the after script, except foreign keys which depend on unique indexes
-    # We have to do all domains before all tables
+    # We have to do all domains and types before all tables
+    # Don't care for dependancy 
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # The user-defined types (domains, etc)
+        # The user-defined types (domains, etc)
+        foreach my $tabletype (sort keys %{$refschema->{TABLE_TYPES}})
+        {
+            print BEFORE "CREATE TYPE " . format_identifier($schema) . '.' . format_identifier($tabletype) . " AS (\n"
+                . $refschema->{TABLE_TYPES}->{$tabletype} . "\n);\n";
+        }
+
+        print BEFORE "\n";    # We change sections in the dump file
+    }
+    while (my ($schema, $refschema) = each %{$objects})
+    {
+        # The user-defined types (domains, etc)
         foreach my $domain (sort keys %{$refschema->{DOMAINS}})
         {
             print BEFORE "CREATE DOMAIN " . format_identifier($schema) . '.' . format_identifier($domain) . ' '
@@ -1450,8 +1532,6 @@ sub generate_schema
     # Tables and columns
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
 
         # The tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1481,9 +1561,7 @@ sub generate_schema
     # Sequences, PKs, Indexes
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # We now add all "AFTER" objects
+            # We now add all "AFTER" objects
             # We start with SEQUENCES, PKs and INDEXES (will be needed for FK)
 
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
@@ -1496,7 +1574,7 @@ sub generate_schema
                 . " START WITH "
                 . $seqref->{START}
                 . " OWNED BY "
-                . format_identifier(relabel_schemas($seqref->{OWNERSCHEMA})) . '.'
+                . format_identifier($seqref->{OWNERSCHEMA}) . '.'
                 . format_identifier($seqref->{OWNERTABLE}) . '.'
                 . format_identifier($seqref->{OWNERCOL}) . ";\n";
         }
@@ -1529,9 +1607,6 @@ sub generate_schema
     # Unique
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-
         # Now The UNIQUE constraints. They may be used for FK (if columns are not null)
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
@@ -1554,10 +1629,8 @@ sub generate_schema
     # Indexes. Unique indexes are needed before foreign key constraints
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # Indexes
-         # They don't have a schema qualifier. But their table has, and they are in the same schema as their table
+        # Indexes
+        # They don't have a schema qualifier. But their table has, and they are in the same schema as their table
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
             foreach my $index (
@@ -1579,8 +1652,6 @@ sub generate_schema
     # Other constraints
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
 
         # We have all we need for FKs now. We can put all other constraints (except PK of course)
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1604,7 +1675,7 @@ sub generate_schema
                           " FOREIGN KEY ("
                         . join(',',@localcollist) . ")"
                         . " REFERENCES "
-                        . format_identifier(relabel_schemas($constraint->{REMOTE_SCHEMA})) . '.'
+                        . format_identifier($constraint->{REMOTE_SCHEMA}) . '.'
                         . format_identifier($constraint->{REMOTE_TABLE}) . " ( "
                         . join(',',@remotecollist) . ")";
                     if (defined $constraint->{ON_DEL_CASC}
@@ -1646,9 +1717,7 @@ sub generate_schema
     # Default values
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # Default values
+        # Default values
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
             foreach
@@ -1673,9 +1742,7 @@ sub generate_schema
     # Comments on tables and columns
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # Comments on tables
+        # Comments on tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
             if (defined($refschema->{TABLES}->{$table}->{COMMENT}))
@@ -1698,9 +1765,7 @@ sub generate_schema
     # Views, and their comments
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # The views, and comments
+        # The views, and comments
         foreach my $view (sort keys %{$refschema->{VIEWS}})
         {
             print UNSURE $refschema->{VIEWS}->{$view}->{SQL}, ";\n";
@@ -1714,9 +1779,7 @@ sub generate_schema
     # Trigger functions
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # The trigger functions
+        # The trigger functions
         foreach my $triggerfunc (sort keys %{$refschema->{TRIG_FUNCTIONS}})
         {
             my $code = $refschema->{TRIG_FUNCTIONS}->{$triggerfunc}->{DEF};
@@ -1730,9 +1793,7 @@ sub generate_schema
     # Triggers
     while (my ($schema, $refschema) = each %{$objects})
     {
-        $schema = relabel_schemas($schema)
-            ;    # If dbo, put into public, unless asked otherwise
-                 # triggers on tables, as these functions are declared now
+        # triggers on tables, as these functions are declared now
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
             foreach
@@ -1811,10 +1872,10 @@ sub resolve_name_conflicts
                         # The schema will be the destination schema: dbo may have been replaced by public
                         # Be careful that they are stored formatted through format_identifier
                         if ($col->{TYPE} eq
-                            (format_identifier(relabel_schemas($schema)) . '.' . format_identifier($domain)))
+                            (format_identifier($schema) . '.' . format_identifier($domain)))
                         {
                             $col->{TYPE} =
-                                format_identifier(relabel_schemas($schema)) . '.' . format_identifier($domain . "2pgd");
+                                format_identifier($schema) . '.' . format_identifier($domain . "2pgd");
                         }
                     }
                 }
