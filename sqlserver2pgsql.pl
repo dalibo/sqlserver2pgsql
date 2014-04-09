@@ -450,11 +450,11 @@ sub generate_kettle
     foreach my $schema (sort keys %{$objects})
     {
         my $refschema    = $objects->{$schema};
-        my $targetschema = relabel_schemas($schema);
+        my $targetschema = $schema;
 
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
-
+            my $origschema=$refschema->{TABLES}->{$table}->{origschema};
             # First, does this table have LOBs ? The template depends on this
             my $newtemplate;
             if ($refschema->{TABLES}->{$table}->{haslobs})
@@ -522,7 +522,7 @@ sub generate_kettle
             $newtemplate =~ s/__postgres_port__/$pp/g;
             $newtemplate =~ s/__postgres_username__/$pu/g;
             $newtemplate =~ s/__postgres_password__/$pw/g;
-            $newtemplate =~ s/__sqlserver_table_name__/$schema.$table/g;
+            $newtemplate =~ s/__sqlserver_table_name__/$origschema.$table/g;
             $newtemplate =~ s/__sqlserver_table_cols__/$colsdef/g;
             my $pgtable=format_identifier($table);
             my $pgschema=format_identifier($targetschema);
@@ -704,9 +704,11 @@ sub parse_dump
         if ($line =~ /^CREATE TABLE \[(.*)\]\.\[(.*)\]\(/)
         {
             my $schemaname   = relabel_schemas($1);
+            my $orig_schema = $1;
             my $tablename    = $2;
             my $colnumber    = 0;
             $objects->{$schemaname}->{TABLES}->{$tablename}->{haslobs} = 0;
+            $objects->{$schemaname}->{TABLES}->{$tablename}->{origschema} = $orig_schema;
             # We are in a create table. Read everything until its end...
             TABLE: while (my $line = read_and_clean($file))
             {
