@@ -686,13 +686,6 @@ sub parse_dump
     open $file, "<:encoding(" . $decoder->name . ")", $filename
         or die "Cannot open $filename";
 
-    # Parsing loop variables
-    my $create_table = 0;     # Are we in a create table statement ?
-    my $tablename    = '';    # If yes, what's the table name ?
-    my $schemaname   = '';    # If yes, what's the schema name ?
-    my $colnumber =
-        0;    # Column number (just to put the commas in the right places) ?
-
     # Tagged because sql statements are often multi-line, so there are inner loops in some conditions
     MAIN: while (my $line = read_and_clean($file))
     {
@@ -700,248 +693,229 @@ sub parse_dump
         # Create table, obviously. There will be other lines below for the rest of the table definition
         if ($line =~ /^CREATE TABLE \[(.*)\]\.\[(.*)\]\(/)
         {
-            $create_table = 1;    # We are now inside a create table
-            $schemaname   = $1;
-            $tablename    = $2;
-            $colnumber    = 0;
+            my $schemaname   = $1;
+            my $tablename    = $2;
+            my $colnumber    = 0;
             $objects->{$schemaname}->{TABLES}->{$tablename}->{haslobs} = 0;
-        }
-
-        # Here is a col definition. We should be inside a create table
-        elsif ($line =~
-            /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/
-            )
-        {
-            if ($create_table
-                )  # We are inside a create table, this is a column definition
+            # We are in a create table. Read everything until its end...
+            TABLE: while (my $line = read_and_clean($file))
             {
-                $colnumber++;
-                my $colname       = $1;
-                my $coltypeschema = $2;
-                my $coltype       = $3;
-                if (defined $coltypeschema)
+                # Here is a col definition.
+                if ($line =~
+                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/
+                    )
                 {
-
-                    # The datatype is a user defined datatype
-                    # It has already been declared before. We just need to find it
-                    $coltype = $coltypeschema . '.' . $coltype;
-                }
-                my $colqual    = $4;
-                my $isidentity = $5;
-                my $colisnull  = $6;
-                if ($colqual)
-                {
-                    if ($colqual eq '(max)')
+                    $colnumber++;
+                    my $colname       = $1;
+                    my $coltypeschema = $2;
+                    my $coltype       = $3;
+                    if (defined $coltypeschema)
                     {
-                        $colqual = undef
-                            ; # max in sql server is the same as putting no colqual in pg
+
+                        # The datatype is a user defined datatype
+                        # It has already been declared before. We just need to find it
+                        $coltype = $coltypeschema . '.' . $coltype;
+                    }
+                    my $colqual    = $4;
+                    my $isidentity = $5;
+                    my $colisnull  = $6;
+                    if ($colqual)
+                    {
+                        if ($colqual eq '(max)')
+                        {
+                            $colqual = undef
+                                ; # max in sql server is the same as putting no colqual in pg
+                        }
+                        else
+                        {
+                            # We need the number (or 2 numbers) in this qual
+                            $colqual =~ /\((\d+(?:,\s*\d+)?)\)/
+                                or die "Cannot parse colqual <$colqual>";
+                            $colqual = "$1";
+                        }
+                    }
+                    my $newtype =
+                        convert_type($coltype,   $colqual, $colname,
+                                     $tablename, undef,    $schemaname);
+
+                    # If it is an identity, we'll map to serial/bigserial (create a sequence, then link it
+                    # to the column)
+                    if ($isidentity)
+                    {
+
+                        # We have an identity field. We remember the default value and
+                        # initialize the sequence correctly in the after script
+                        $isidentity =~ /IDENTITY\((\d+),\s*(\d+)\)/
+                            or die "Cannot understand <$isidentity>";
+                        my $startseq = $1;
+                        my $stepseq  = $2;
+                        my $seqname  = lc("${tablename}_${colname}_seq");
+
+                        # We get a sure default value.
+                        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
+                            ->{$colname}->{DEFAULT}->{VALUE} =
+                              "nextval('"
+                            . format_identifier(relabel_schemas(${schemaname})) . '.'
+                            . ${seqname} . "')";
+                        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
+                            ->{$colname}->{DEFAULT}->{UNSURE} = 0;
+
+                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
+                            = $startseq;
+                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
+                            = $stepseq;
+                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+                            ->{OWNERTABLE} = $tablename;
+                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+                            ->{OWNERCOL} = $colname;
+                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+                            ->{OWNERSCHEMA} = $schemaname;
+                    }
+
+                    # If there is a bytea generated, this table will contain a blob:
+                    # use a special kettle transformation for it if generating kettle
+                    # (see generate_kettle() )
+                    if (   $newtype eq 'bytea'
+                        or $coltype eq
+                        'ntext')    # Ntext is very slow, stored out of page
+                    {
+                        $objects->{$schemaname}->{'TABLES'}->{$tablename}
+                            ->{haslobs} = 1;
+                    }
+                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                        ->{$colname}->{POS} = $colnumber;
+                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                        ->{$colname}->{TYPE} = $newtype;
+
+                    if ($colisnull eq 'NOT NULL')
+                    {
+                        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                            ->{$colname}->{NOT_NULL} = 1;
                     }
                     else
                     {
-                        # We need the number (or 2 numbers) in this qual
-                        $colqual =~ /\((\d+(?:,\s*\d+)?)\)/
-                            or die "Cannot parse colqual <$colqual>";
-                        $colqual = "$1";
+                        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                            ->{$colname}->{NOT_NULL} = 0;
                     }
                 }
-                my $newtype =
-                    convert_type($coltype,   $colqual, $colname,
-                                 $tablename, undef,    $schemaname);
 
-                # If it is an identity, we'll map to serial/bigserial (create a sequence, then link it
-                # to the column)
-                if ($isidentity)
+                # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
+                # So just put it as a varchar, and issue a warning is STDOUT
+                elsif ($line =~ /^\t\[(.*)\]\s+AS\s+\((.*)\)/)
                 {
 
-                    # We have an identity field. We remember the default value and
-                    # initialize the sequence correctly in the after script
-                    $isidentity =~ /IDENTITY\((\d+),\s*(\d+)\)/
-                        or die "Cannot understand <$isidentity>";
-                    my $startseq = $1;
-                    my $stepseq  = $2;
-                    my $seqname  = lc("${tablename}_${colname}_seq");
-
-                    # We get a sure default value.
-                    $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
-                        ->{$colname}->{DEFAULT}->{VALUE} =
-                          "nextval('"
-                        . format_identifier(relabel_schemas(${schemaname})) . '.'
-                        . ${seqname} . "')";
-                    $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
-                        ->{$colname}->{DEFAULT}->{UNSURE} = 0;
-
-                    $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
-                        = $startseq;
-                    $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
-                        = $stepseq;
-                    $objects->{$schemaname}->{SEQUENCES}->{$seqname}
-                        ->{OWNERTABLE} = $tablename;
-                    $objects->{$schemaname}->{SEQUENCES}->{$seqname}
-                        ->{OWNERCOL} = $colname;
-                    $objects->{$schemaname}->{SEQUENCES}->{$seqname}
-                        ->{OWNERSCHEMA} = $schemaname;
-                }
-
-                # If there is a bytea generated, this table will contain a blob:
-                # use a special kettle transformation for it if generating kettle
-                # (see generate_kettle() )
-                if (   $newtype eq 'bytea'
-                    or $coltype eq
-                    'ntext')    # Ntext is very slow, stored out of page
-                {
-                    $objects->{$schemaname}->{'TABLES'}->{$tablename}
-                        ->{haslobs} = 1;
-                }
-                $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                    ->{$colname}->{POS} = $colnumber;
-                $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                    ->{$colname}->{TYPE} = $newtype;
-
-                if ($colisnull eq 'NOT NULL')
-                {
+                    # We just get the column name
+                    $colnumber++;
+                    my $colname = $1;
+                    my $code    = $2;
+                    my $coltype = 'varchar';
                     $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{NOT_NULL} = 1;
-                }
-                else
-                {
+                        ->{$colname}->{POS} = $colnumber;
+                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                        ->{$colname}->{TYPE} = $coltype;
                     $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{NOT_NULL} = 0;
-                }
-            }
-            else
-            {
-                die "I don't understand $line. This is a bug";
-            }
-        }
 
-        # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
-        # So just put it as a varchar, and issue a warning is STDOUT
-        elsif ($line =~ /^\t\[(.*)\]\s+AS\s+\((.*)\)/)
-        {
+                    # Big fat warning
+                    print STDERR
+                        "Warning: There is a calculated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
+                    print STDERR
+                        "\tFor now it has been declared as a varchar in PG, so that the values can be copied\n";
+                    print STDERR
+                        "\tYou should change its type manually in the dump (sorry for that),\n";
+                    print STDERR "\tA trigger has been written in the unsure file. It probably won't work as is.\n";
+                    print STDERR "\tPlease review it.\n";
 
-            # We just get the column name
-            $colnumber++;
-            my $colname = $1;
-            my $code    = $2;
-            my $coltype = 'varchar';
-            $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                ->{$colname}->{POS} = $colnumber;
-            $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                ->{$colname}->{TYPE} = $coltype;
-            $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                ->{$colname}->{NOT_NULL} = 0;
-
-            # Big fat warning
-            print STDERR
-                "Warning: There is a calculated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
-            print STDERR
-                "\tFor now it has been declared as a varchar in PG, so that the values can be copied\n";
-            print STDERR
-                "\tYou should change its type manually in the dump (sorry for that),\n";
-            print STDERR "\tA trigger has been written in the unsure file. It probably won't work as is.\n";
-            print STDERR "\tPlease review it.\n";
-
-            # Try to correct what can be corrected from the AS : replace [COL] with NEW.COL
-            $code =~ s/\[(.*?)\]/NEW.$1/g;
-            my $triggerfunc = <<EOF;
+                    # Try to correct what can be corrected from the AS : replace [COL] with NEW.COL
+                    $code =~ s/\[(.*?)\]/NEW.$1/g;
+                    my $triggerfunc = <<EOF;
 begin
   NEW.NOUVEAU=$code;
   RETURN NEW;
 end;
 EOF
-            $objects->{$schemaname}->{'TRIG_FUNCTIONS'}
-                ->{'trig_func_ins_or_upd' || $tablename}->{DEF} =
-                $triggerfunc;
-            $objects->{$schemaname}->{'TRIG_FUNCTIONS'}
-                ->{'trig_func_ins_or_upd' || $tablename}->{LANG} =
-                'plpgsql';
-            my %trigger;
-            $trigger{EVENTS} = 'before insert or update';
-            $trigger{WHEN}   = 'for each row';
-            $trigger{FUNCTION} =
-                'trig_func_ins_or_upd' || $tablename;    # In the same schema
-            $trigger{NAME} = 'trig_ins_or_upd' || $tablename;
-            push @{$objects->{$schemaname}->{'TABLES'}->{$tablename}
-                    ->{TRIGGERS}}, (\%trigger);
-
-        }
-        elsif ($line =~
-               /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
-        {
-            # This is not forbidden by SQL, of course. I just never saw this in a sql server dump,
-            # so it should be an error for now (it will be syntaxically different if outside a table anyhow)
-            die "PK defined outside a table\n: $line" unless ($create_table);
-
-            my $constraint
-                ; # We put everything inside this hashref, we'll push it into the constraint list later
-            $constraint->{TYPE} = 'PK';
-            if (defined $1)
-            {
-                $constraint->{NAME} = $1;
-            }
-
-            # Here is the PK. We read the following lines until the end of the constraint
-            while (my $pk = read_and_clean($file))
-            {
-
-                # Exit when read a line beginning with ). The constraint is complete. We store it and go back to main loop
-                if ($pk =~ /^\)/)
-                {
-                    push @{$objects->{$schemaname}->{TABLES}->{$tablename}
-                            ->{CONSTRAINTS}}, ($constraint);
-
-                    # We also directly put the constraint reference in a direct path (for ease of use in generate_kettle)
-                    $objects->{$schemaname}->{TABLES}->{$tablename}->{PK} =
-                        $constraint;
-                    next MAIN;
-                }
-                if ($pk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
-                {
-                    push @{$constraint->{COLS}}, ($1);
-                }
-            }
-        }
-        elsif ($line =~ /^\s*(?:CONSTRAINT \[(.*)\] )?UNIQUE/)
-        {
-
-            # This (having the constraint inside a create table )is not forbidden by SQL,
-            # of course. I just never saw this in a sql server dump,
-            # so it should be an error for now (it will be syntaxically different if outside a table anyhow)
-            die "Unique key defined outside a table\n: $line"
-                unless ($create_table);
-
-            my $constraint
-                ; # We put everything inside this hashref, we'll push it into the constraint list later
-            $constraint->{TYPE} = 'UNIQUE';
-            if (defined $1)
-            {
-                $constraint->{NAME} = $1;
-            }
-
-            # Unique key definition. We read following lines until the end of the constraint
-            while (my $uk = read_and_clean($file))
-            {
-
-                # Exit when read a line beginning with ). The constraint is complete
-                if ($uk =~ /^\)/)
-                {
+                    $objects->{$schemaname}->{'TRIG_FUNCTIONS'}
+                        ->{'trig_func_ins_or_upd' || $tablename}->{DEF} =
+                        $triggerfunc;
+                    $objects->{$schemaname}->{'TRIG_FUNCTIONS'}
+                        ->{'trig_func_ins_or_upd' || $tablename}->{LANG} =
+                        'plpgsql';
+                    my %trigger;
+                    $trigger{EVENTS} = 'before insert or update';
+                    $trigger{WHEN}   = 'for each row';
+                    $trigger{FUNCTION} =
+                        'trig_func_ins_or_upd' || $tablename;    # In the same schema
+                    $trigger{NAME} = 'trig_ins_or_upd' || $tablename;
                     push @{$objects->{$schemaname}->{'TABLES'}->{$tablename}
-                            ->{CONSTRAINTS}}, ($constraint);
+                            ->{TRIGGERS}}, (\%trigger);
+
+                }
+                elsif ($line =~
+                       /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
+                {
+                    my $constraint
+                        ; # We put everything inside this hashref, we'll push it into the constraint list later
+                    $constraint->{TYPE} = 'PK';
+                    if (defined $1)
+                    {
+                        $constraint->{NAME} = $1;
+                    }
+
+                    # Here is the PK. We read the following lines until the end of the constraint
+                    while (my $pk = read_and_clean($file))
+                    {
+
+                        # Exit when read a line beginning with ). The constraint is complete. We store it and go back to main loop
+                        if ($pk =~ /^\)/)
+                        {
+                            push @{$objects->{$schemaname}->{TABLES}->{$tablename}
+                                    ->{CONSTRAINTS}}, ($constraint);
+
+                            # We also directly put the constraint reference in a direct path (for ease of use in generate_kettle)
+                            $objects->{$schemaname}->{TABLES}->{$tablename}->{PK} =
+                                $constraint;
+                            next TABLE;
+                        }
+                        if ($pk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
+                        {
+                            push @{$constraint->{COLS}}, ($1);
+                        }
+                    }
+                }
+                elsif ($line =~ /^\s*(?:CONSTRAINT \[(.*)\] )?UNIQUE/)
+                {
+                    my $constraint
+                        ; # We put everything inside this hashref, we'll push it into the constraint list later
+                    $constraint->{TYPE} = 'UNIQUE';
+                    if (defined $1)
+                    {
+                        $constraint->{NAME} = $1;
+                    }
+
+                    # Unique key definition. We read following lines until the end of the constraint
+                    while (my $uk = read_and_clean($file))
+                    {
+
+                        # Exit when read a line beginning with ). The constraint is complete
+                        if ($uk =~ /^\)/)
+                        {
+                            push @{$objects->{$schemaname}->{'TABLES'}->{$tablename}
+                                    ->{CONSTRAINTS}}, ($constraint);
+                            next TABLE;
+                        }
+                        if ($uk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
+                        {
+                            push @{$constraint->{COLS}}, ($1);
+                        }
+                    }
+
+                }
+                elsif ($line =~ /^\) ON \[PRIMARY\]/)
+                {
+                    # End of the table
                     next MAIN;
                 }
-                if ($uk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
-                {
-                    push @{$constraint->{COLS}}, ($1);
-                }
             }
-
-        }
-        elsif ($line =~ /^\) ON \[PRIMARY\]/)
-        {
-
-            # End of the table
-            $create_table = 0;
-            $tablename    = '';
         }
         ################################################################
         # From HERE, these SQL commands are not linked to a create table
