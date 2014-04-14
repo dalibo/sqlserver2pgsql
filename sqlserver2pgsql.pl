@@ -123,7 +123,7 @@ sub convert_numeric_to_int
     return 'smallint' if ($precision <= 4);
     return 'integer'  if ($precision <= 9);
     return 'bigint'   if ($precision <= 18);
-    return 'numeric($qual)';
+    return "numeric($qual)";
 }
 
 # These are the no-brainer conversions
@@ -148,7 +148,8 @@ my %types = ('int'           => 'int',
              'image'         => 'bytea',
              'binary'        => 'bytea',
              'varbinary'     => 'bytea',
-             'money'         => 'numeric');
+             'money'         => 'numeric',
+             'uniqueidentifier' => 'uuid',);
 
 # Types with no qualifier, and no point in putting one
 my %unqual = ('bytea' => 1);
@@ -288,16 +289,16 @@ sub convert_transactsql_code
 
 
 # This gives the next column position for a table
-# It is used when we receive alter tables in the sql server dump
+# It is used when we add a new column
 # These tables are added at the end of the table, in %objects
 sub next_col_pos
 {
     my ($schema, $table) = @_;
-    if (defined $objects->{$schema}->{TABlES}->{$table}->{COLS})
+    if (defined $objects->{$schema}->{TABLES}->{$table}->{COLS})
     {
         my $max = 0;
         foreach my $col (
-                   values(%{$objects->{$schema}->{TABlES}->{$table}->{COLS}}))
+                   values(%{$objects->{$schema}->{TABLES}->{$table}->{COLS}}))
         {
             if ($col->{POS} > $max)
             {
@@ -305,6 +306,11 @@ sub next_col_pos
             }
         }
         return $max + 1;
+    }
+    elsif (defined $objects->{$schema}->{TABLES}->{$table})
+    {
+        # First column
+        return 1;
     }
     else
     {
@@ -671,6 +677,98 @@ sub generate_kettle
     }
 }
 
+# This adds a column we just read to a table
+sub add_column_to_table
+{
+    my ($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull)=@_;
+    my $colnumber=next_col_pos($schemaname,$tablename);
+    if (defined $coltypeschema)
+    {
+
+        # The datatype is a user defined datatype
+        # It has already been declared before. We just need to find it
+        $coltype = relabel_schemas($coltypeschema) . '.' . $coltype;
+    }
+     if ($colqual)
+    {
+        if ($colqual eq '(max)')
+        {
+            $colqual = undef
+                ; # max in sql server is the same as putting no colqual in pg
+        }
+        else
+        {
+            # We need the number (or 2 numbers) in this qual
+            $colqual =~ /\((\d+(?:,\s*\d+)?)\)/
+                or die "Cannot parse colqual <$colqual>";
+            $colqual = "$1";
+        }
+    }
+    my $newtype =
+        convert_type($coltype,   $colqual, $colname,
+                     $tablename, undef,    $schemaname);
+
+    # If it is an identity, we'll map to serial/bigserial (create a sequence, then link it
+    # to the column)
+    if ($isidentity)
+    {
+
+        # We have an identity field. We remember the default value and
+        # initialize the sequence correctly in the after script
+        $isidentity =~ /IDENTITY\((\d+),\s*(\d+)\)/
+            or die "Cannot understand <$isidentity>";
+        my $startseq = $1;
+        my $stepseq  = $2;
+        my $seqname  = lc("${tablename}_${colname}_seq");
+
+        # We get a sure default value.
+        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
+            ->{$colname}->{DEFAULT}->{VALUE} =
+              "nextval('"
+            . format_identifier(relabel_schemas(${schemaname})) . '.'
+            . ${seqname} . "')";
+        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
+            ->{$colname}->{DEFAULT}->{UNSURE} = 0;
+
+        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
+            = $startseq;
+        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
+            = $stepseq;
+        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+            ->{OWNERTABLE} = $tablename;
+        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+            ->{OWNERCOL} = $colname;
+        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+            ->{OWNERSCHEMA} = $schemaname;
+    }
+
+    # If there is a bytea generated, this table will contain a blob:
+    # use a special kettle transformation for it if generating kettle
+    # (see generate_kettle() )
+    if (   $newtype eq 'bytea'
+        or $coltype eq
+        'ntext')    # Ntext is very slow, stored out of page
+    {
+        $objects->{$schemaname}->{'TABLES'}->{$tablename}
+            ->{haslobs} = 1;
+    }
+    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+        ->{$colname}->{POS} = $colnumber;
+    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+        ->{$colname}->{TYPE} = $newtype;
+
+    if ($colisnull eq 'NOT NULL')
+    {
+        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+            ->{$colname}->{NOT_NULL} = 1;
+    }
+    else
+    {
+        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+            ->{$colname}->{NOT_NULL} = 0;
+    }
+}
+
 # Reads the dump passed as -f
 # Generates the $object structure
 # That's THE MAIN FUNCTION
@@ -706,7 +804,6 @@ sub parse_dump
             my $schemaname   = relabel_schemas($1);
             my $orig_schema = $1;
             my $tablename    = $2;
-            my $colnumber    = 0;
             $objects->{$schemaname}->{TABLES}->{$tablename}->{haslobs} = 0;
             $objects->{$schemaname}->{TABLES}->{$tablename}->{origschema} = $orig_schema;
             # We are in a create table. Read everything until its end...
@@ -717,99 +814,16 @@ sub parse_dump
                     /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/
                     )
                 {
-                    $colnumber++;
+                    #Deported into a function because we can also meet alter table add columns on their own
                     my $colname       = $1;
                     my $coltypeschema = $2;
                     my $coltype       = $3;
-                    if (defined $coltypeschema)
-                    {
-
-                        # The datatype is a user defined datatype
-                        # It has already been declared before. We just need to find it
-                        $coltype = relabel_schemas($coltypeschema) . '.' . $coltype;
-                    }
                     my $colqual    = $4;
                     my $isidentity = $5;
                     my $colisnull  = $6;
-                    if ($colqual)
-                    {
-                        if ($colqual eq '(max)')
-                        {
-                            $colqual = undef
-                                ; # max in sql server is the same as putting no colqual in pg
-                        }
-                        else
-                        {
-                            # We need the number (or 2 numbers) in this qual
-                            $colqual =~ /\((\d+(?:,\s*\d+)?)\)/
-                                or die "Cannot parse colqual <$colqual>";
-                            $colqual = "$1";
-                        }
-                    }
-                    my $newtype =
-                        convert_type($coltype,   $colqual, $colname,
-                                     $tablename, undef,    $schemaname);
-
-                    # If it is an identity, we'll map to serial/bigserial (create a sequence, then link it
-                    # to the column)
-                    if ($isidentity)
-                    {
-
-                        # We have an identity field. We remember the default value and
-                        # initialize the sequence correctly in the after script
-                        $isidentity =~ /IDENTITY\((\d+),\s*(\d+)\)/
-                            or die "Cannot understand <$isidentity>";
-                        my $startseq = $1;
-                        my $stepseq  = $2;
-                        my $seqname  = lc("${tablename}_${colname}_seq");
-
-                        # We get a sure default value.
-                        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
-                            ->{$colname}->{DEFAULT}->{VALUE} =
-                              "nextval('"
-                            . format_identifier(relabel_schemas(${schemaname})) . '.'
-                            . ${seqname} . "')";
-                        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
-                            ->{$colname}->{DEFAULT}->{UNSURE} = 0;
-
-                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
-                            = $startseq;
-                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
-                            = $stepseq;
-                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
-                            ->{OWNERTABLE} = $tablename;
-                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
-                            ->{OWNERCOL} = $colname;
-                        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
-                            ->{OWNERSCHEMA} = $schemaname;
-                    }
-
-                    # If there is a bytea generated, this table will contain a blob:
-                    # use a special kettle transformation for it if generating kettle
-                    # (see generate_kettle() )
-                    if (   $newtype eq 'bytea'
-                        or $coltype eq
-                        'ntext')    # Ntext is very slow, stored out of page
-                    {
-                        $objects->{$schemaname}->{'TABLES'}->{$tablename}
-                            ->{haslobs} = 1;
-                    }
-                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{POS} = $colnumber;
-                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{TYPE} = $newtype;
-
-                    if ($colisnull eq 'NOT NULL')
-                    {
-                        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                            ->{$colname}->{NOT_NULL} = 1;
-                    }
-                    else
-                    {
-                        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                            ->{$colname}->{NOT_NULL} = 0;
-                    }
+                    add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
                 }
+
 
                 # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
                 # So just put it as a varchar, and issue a warning is STDOUT
@@ -817,7 +831,7 @@ sub parse_dump
                 {
 
                     # We just get the column name
-                    $colnumber++;
+                    my $colnumber=next_col_pos($schemaname,$tablename);
                     my $colname = $1;
                     my $code    = $2;
                     my $coltype = 'varchar';
@@ -1147,21 +1161,87 @@ EOF
         # Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
         # PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
         elsif ($line =~
-            /^ALTER TABLE \[.*\]\.\[(.*)\] ADD \[(.*)\] (?:\[.*\]\.)?\[(.*)\](\(.+?\))?( .*\(\d+,\s*\d+\))? (NOT NULL|NULL)$/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD \[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)$/
             )
         {
-            # For now I don't know what to do with them. So die
-            die "$line: not understood. This is a bug";
+            my $schemaname=relabel_schemas($1);
+            my $tablename=$2;
+            my $colname=$3;
+            my $coltypeschema=$4;
+            my $coltype=$5;
+            my $colqual=$6;
+            my $isidentity=$7;
+            my $colisnull=$8;
+            add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
         }
 
         # Table constraints
         # Primary key. Multiline
         elsif ($line =~
-            /^ALTER TABLE \[.*\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[(.*)\])? PRIMARY KEY (?:CLUSTERED)?/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[(.*)\])? PRIMARY KEY (?:CLUSTERED|NONCLUSTERED)?/
             )
         {
-            # Never seen one for now. The code is there though, in case, with a die for now
-            die "$line: not understood. This is a bug";
+            my $schemaname=relabel_schemas($1);
+            my $tablename=$2;
+            my $constraint;
+            $constraint->{TYPE}='PK';
+            if (defined $3)
+            {
+                $constraint->{NAME} = $3;
+            }
+
+            
+            CONS: while (my $consline= read_and_clean($file))
+            {
+                next if ($consline =~ /^\($/);
+                if ($consline =~ /^\t\[(.*)\] ASC,?$/)
+                {
+                    push @{$constraint->{COLS}}, ($1);
+                }
+                elsif ($consline =~ /^\).*$/)
+                {
+                    push @{$objects->{$schemaname}->{TABLES}->{$tablename}
+                            ->{CONSTRAINTS}}, ($constraint);
+
+                    # We also directly put the constraint reference in a direct path (for ease of use in generate_kettle)
+                    $objects->{$schemaname}->{TABLES}->{$tablename}->{PK} = $constraint;
+                    # We are done here
+                    next MAIN;
+                }
+                else
+                {
+                    die "Cannot understand $consline.";
+                }
+            }
+        }
+        elsif ($line =~
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[(.*)\])? UNIQUE (?:CLUSTERED|NONCLUSTERED)?/
+            )
+        {
+            my $schemaname=relabel_schemas($1);
+            my $tablename=$2;
+            my $constraint;
+            $constraint->{TYPE}='UNIQUE';
+            if (defined $3)
+            {
+                $constraint->{NAME}=$3;
+            }
+            while (my $uk = read_and_clean($file))
+            {
+
+                # Exit when read a line beginning with ). The constraint is complete
+                if ($uk =~ /^\)/)
+                {
+                    push @{$objects->{$schemaname}->{'TABLES'}->{$tablename}
+                            ->{CONSTRAINTS}}, ($constraint);
+                    next MAIN;
+                }
+                if ($uk =~ /^\t\[(.*)\] (ASC|DESC)(,?)/)
+                {
+                    push @{$constraint->{COLS}}, ($1);
+                }
+            }
+
         }
 
         # Default values. numeric, then text. These are 100% sure, they will parse in PG
@@ -1176,13 +1256,11 @@ EOF
 	        # Ok, it IS a boolean, and we have received a number
                 if ($3 eq '0')
                 {
-                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
-                        ->{VALUE} = 'false';
+                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'false';
                 }
                 elsif ($3 eq '1')
                 {
-                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}
-                        ->{VALUE} = 'true';
+                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'true';
                 }
                 else
                 {
@@ -1291,7 +1369,7 @@ EOF
 
         # Check constraint. As it can be arbitrary code, we just get this code, and hope it will work on PG (it will be stored in a special script file)
         elsif ($line =~
-            /ALTER TABLE \[(.*)\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD  CONSTRAINT \[(.*)\] CHECK  \(\((.*)\)\)/
+            /ALTER TABLE \[(.*)\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD(?:\s+CONSTRAINT \[(.*)\])? CHECK  \(\((.*)\)\)/
             )
         {
             # Check constraint. We'll do what we can, syntax may be different.
@@ -1300,7 +1378,10 @@ EOF
             my $constxt = $4;
             my $schema  = relabel_schemas($1);
             $constraint->{TABLE} = $table;
-            $constraint->{NAME}  = $3;
+            if (defined $3)
+            {
+                $constraint->{NAME}  = $3;
+            }
             $constraint->{TYPE}  = 'CHECK';
             $constxt =~
                 s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
@@ -1310,15 +1391,22 @@ EOF
         }
 
         # These are comments or extended attributes on objets. They can be multiline, so aggregate everything
-        # Until next GO command
+        # Until a line that ends with a quote (but not two of them). We remove pair of quotes to make it simpler
         # If fact in can be a lot of things. So we have to ignore things like MS_DiagramPaneCount
         elsif ($line =~ /^EXEC sys.sp_addextendedproperty/)
         {
+            $line =~ s/''//g;
             my $sqlproperty = $line;
-            while (my $inline = read_and_clean($file))
+            # If it ends with a single quote, and it is not the start (some people start their comments with a linefeed)
+            unless ($line =~ /'$/ and $line !~ /=N'$/)
             {
-                last if ($inline =~ /^GO/);
-                $sqlproperty .= $inline;
+                while (my $inline = read_and_clean($file))
+                {
+                    $inline =~ s/''//g;
+                    $sqlproperty .= $inline;
+                    # If it ends with a single quote, and it is not the start (some people start their comments with a linefeed)
+                    last if ($inline =~ /'$/ and $inline !~ /=N'$/);
+                }
             }
 
             # We have all the extended property. Let's parse it.
@@ -1342,9 +1430,13 @@ EOF
                 # There can be quotes inside a string. So (?<!')' matches only a ' not preceded by a '.
                 # I hope it will be sufficient (won't be if someone decides to end a comment with a quote)
 
-                $sqlproperty =~
-                    /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s
-                    or die "Could not parse $sqlproperty. This is a bug.";
+                unless ($sqlproperty =~
+                    /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*)'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s)
+                {
+                    # Not parsing a comment should not stop
+                    print STDERR "Could not parse <$sqlproperty>. Ignored.\n";
+                    next MAIN;
+                }
                 my ($comment, $schema, $obj, $objname, $subobj, $subobjname)
                     = ($2, $4, $5, $6, $7, $8);
                 $schema=relabel_schemas($schema);
@@ -1865,9 +1957,9 @@ sub resolve_name_conflicts
                     "Warning: I had to rename domain $domain to ${domain}2pgd because of naming conflicts between a table and a domain, in source schema $schema\n";
 
                 # I also have to check all cols type to rename this
-                foreach my $table (values %{$refschema->{TABLES}})
+                while ( my ($tablename,$table) = each %{$refschema->{TABLES}})
                 {
-                    foreach my $col (values %{$table->{COLS}})
+                    while (my ($colname,$col) =each  %{$table->{COLS}})
                     {
 
                         # If a column has a custom type, it will be prefixed by schema
