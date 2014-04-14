@@ -528,7 +528,7 @@ sub generate_kettle
             $newtemplate =~ s/__postgres_port__/$pp/g;
             $newtemplate =~ s/__postgres_username__/$pu/g;
             $newtemplate =~ s/__postgres_password__/$pw/g;
-            $newtemplate =~ s/__sqlserver_table_name__/$origschema.$table/g;
+            $newtemplate =~ s/__sqlserver_table_name__/[$origschema].[$table]/g;
             $newtemplate =~ s/__sqlserver_table_cols__/$colsdef/g;
             my $pgtable=format_identifier($table);
             my $pgschema=format_identifier($targetschema);
