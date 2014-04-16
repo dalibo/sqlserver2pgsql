@@ -126,6 +126,23 @@ sub convert_numeric_to_int
     return "numeric($qual)";
 }
 
+# This is a list of the types that require a cast to be imported in kettle
+my %types_to_cast = ('uuid'  => '1',);
+
+# This sub adds a cast (if not defined already) if
+# - we generate for kettle
+# - the passed type is in %types_to_cast
+sub add_cast
+{
+    my ($type)=@_;
+    if (defined $types_to_cast{$type})
+    {
+        $objects->{CASTS}->{uuid}=1;
+    }
+}
+
+
+
 # These are the no-brainer conversions
 # There is still a special case for text types and case insensitivity (see convert_type) though
 my %types = ('int'           => 'int',
@@ -189,13 +206,22 @@ sub convert_type
 
         # Numeric is a special case:
         # No qualifier. We have to use numeric
-        return 'numeric' unless ($sqlqual);
-        return "numeric($sqlqual)"
-            unless ($sqlqual =~ /\d+,\s*0/);    # If the qualifier is not x,0
-        return "numeric($sqlqual)"
-            unless ($convert_numeric_to_int)
-            ;    # If we have not activated conversion
-        return convert_numeric_to_int($sqlqual);    # We got there: convert !
+        if (not $sqlqual)
+        {
+            $rettype='numeric';
+        }
+        elsif ($sqlqual !~ /\d+,\s*0/)
+        {
+            $rettype="numeric($sqlqual)";
+        }
+        elsif ( my $tmprettype=convert_numeric_to_int($sqlqual))
+        {
+            $rettype=$tmprettype;
+        }
+        else
+        {
+            $rettype="numeric($sqlqual)";
+        }
     }
     else
     {
@@ -222,7 +248,7 @@ sub convert_type
                 $constraint->{TYPE}  = 'CHECK_CITEXT';
                 $constraint->{TABLE} = $tablename;
                 $constraint->{TEXT}  = "char_length(" . format_identifier($colname) . ") <= $sqlqual";
-                push @{$objects->{$schemaname}->{TABLES}->{$tablename}
+                push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                         ->{CONSTRAINTS}}, ($constraint);
             }
             elsif (defined $typname
@@ -242,11 +268,14 @@ sub convert_type
     {
         # This is a namespaced type. So we check if this is a special array
         my ($schema,$type)=($1,$2);
-        if (defined($objects->{$schema}->{TABLE_TYPES}->{$type}))
+        if (defined($objects->{SCHEMAS}->{$schema}->{TABLE_TYPES}->{$type}))
         {
             $rettype=$rettype.'[]';
         }
     }
+    # Add this type to casts to perform if necessary
+    add_cast($rettype);
+
     return $rettype;
 }
 
@@ -294,11 +323,11 @@ sub convert_transactsql_code
 sub next_col_pos
 {
     my ($schema, $table) = @_;
-    if (defined $objects->{$schema}->{TABLES}->{$table}->{COLS})
+    if (defined $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS})
     {
         my $max = 0;
         foreach my $col (
-                   values(%{$objects->{$schema}->{TABLES}->{$table}->{COLS}}))
+                   values(%{$objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}}))
         {
             if ($col->{POS} > $max)
             {
@@ -307,7 +336,7 @@ sub next_col_pos
         }
         return $max + 1;
     }
-    elsif (defined $objects->{$schema}->{TABLES}->{$table})
+    elsif (defined $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table})
     {
         # First column
         return 1;
@@ -453,9 +482,9 @@ sub generate_kettle
 
     # For each table in each schema in $objects, we generate a kettle file in the directory
 
-    foreach my $schema (sort keys %{$objects})
+    foreach my $schema (sort keys %{$objects->{SCHEMAS}})
     {
-        my $refschema    = $objects->{$schema};
+        my $refschema    = $objects->{SCHEMAS}->{$schema};
         my $targetschema = $schema;
 
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -558,9 +587,9 @@ sub generate_kettle
      # We sort only so that it will be easier to find a transformation in the job if one needed to
      # edit it. It's also easier to track progress if tables are sorted alphabetically
 
-    foreach my $schema (sort keys %{$objects})
+    foreach my $schema (sort keys %{$objects->{SCHEMAS}})
     {
-        my $refschema = $objects->{$schema};
+        my $refschema = $objects->{SCHEMAS}->{$schema};
         foreach my $table (sort { lc($a) cmp lc($b) }
                            keys %{$refschema->{TABLES}})
         {
@@ -722,23 +751,23 @@ sub add_column_to_table
         my $seqname  = lc("${tablename}_${colname}_seq");
 
         # We get a sure default value.
-        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
+        $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{COLS}
             ->{$colname}->{DEFAULT}->{VALUE} =
               "nextval('"
             . format_identifier(relabel_schemas(${schemaname})) . '.'
             . ${seqname} . "')";
-        $objects->{$schemaname}->{TABLES}->{$tablename}->{COLS}
+        $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{COLS}
             ->{$colname}->{DEFAULT}->{UNSURE} = 0;
 
-        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
+        $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
             = $startseq;
-        $objects->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
+        $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
             = $stepseq;
-        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+        $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}
             ->{OWNERTABLE} = $tablename;
-        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+        $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}
             ->{OWNERCOL} = $colname;
-        $objects->{$schemaname}->{SEQUENCES}->{$seqname}
+        $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}
             ->{OWNERSCHEMA} = $schemaname;
     }
 
@@ -749,22 +778,22 @@ sub add_column_to_table
         or $coltype eq
         'ntext')    # Ntext is very slow, stored out of page
     {
-        $objects->{$schemaname}->{'TABLES'}->{$tablename}
+        $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}
             ->{haslobs} = 1;
     }
-    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
         ->{$colname}->{POS} = $colnumber;
-    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
         ->{$colname}->{TYPE} = $newtype;
 
     if ($colisnull eq 'NOT NULL')
     {
-        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+        $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
             ->{$colname}->{NOT_NULL} = 1;
     }
     else
     {
-        $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+        $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
             ->{$colname}->{NOT_NULL} = 0;
     }
 }
@@ -804,8 +833,8 @@ sub parse_dump
             my $schemaname   = relabel_schemas($1);
             my $orig_schema = $1;
             my $tablename    = $2;
-            $objects->{$schemaname}->{TABLES}->{$tablename}->{haslobs} = 0;
-            $objects->{$schemaname}->{TABLES}->{$tablename}->{origschema} = $orig_schema;
+            $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{haslobs} = 0;
+            $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{origschema} = $orig_schema;
             # We are in a create table. Read everything until its end...
             TABLE: while (my $line = read_and_clean($file))
             {
@@ -835,11 +864,11 @@ sub parse_dump
                     my $colname = $1;
                     my $code    = $2;
                     my $coltype = 'varchar';
-                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{POS} = $colnumber;
-                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{TYPE} = $coltype;
-                    $objects->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{NOT_NULL} = 0;
 
                     # Big fat warning
@@ -860,10 +889,10 @@ begin
   RETURN NEW;
 end;
 EOF
-                    $objects->{$schemaname}->{'TRIG_FUNCTIONS'}
+                    $objects->{SCHEMAS}->{$schemaname}->{'TRIG_FUNCTIONS'}
                         ->{'trig_func_ins_or_upd' || $tablename}->{DEF} =
                         $triggerfunc;
-                    $objects->{$schemaname}->{'TRIG_FUNCTIONS'}
+                    $objects->{SCHEMAS}->{$schemaname}->{'TRIG_FUNCTIONS'}
                         ->{'trig_func_ins_or_upd' || $tablename}->{LANG} =
                         'plpgsql';
                     my %trigger;
@@ -872,7 +901,7 @@ EOF
                     $trigger{FUNCTION} =
                         'trig_func_ins_or_upd' || $tablename;    # In the same schema
                     $trigger{NAME} = 'trig_ins_or_upd' || $tablename;
-                    push @{$objects->{$schemaname}->{'TABLES'}->{$tablename}
+                    push @{$objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}
                             ->{TRIGGERS}}, (\%trigger);
 
                 }
@@ -894,11 +923,11 @@ EOF
                         # Exit when read a line beginning with ). The constraint is complete. We store it and go back to main loop
                         if ($pk =~ /^\)/)
                         {
-                            push @{$objects->{$schemaname}->{TABLES}->{$tablename}
+                            push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                                     ->{CONSTRAINTS}}, ($constraint);
 
                             # We also directly put the constraint reference in a direct path (for ease of use in generate_kettle)
-                            $objects->{$schemaname}->{TABLES}->{$tablename}->{PK} =
+                            $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{PK} =
                                 $constraint;
                             next TABLE;
                         }
@@ -925,7 +954,7 @@ EOF
                         # Exit when read a line beginning with ). The constraint is complete
                         if ($uk =~ /^\)/)
                         {
-                            push @{$objects->{$schemaname}->{'TABLES'}->{$tablename}
+                            push @{$objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}
                                     ->{CONSTRAINTS}}, ($constraint);
                             next TABLE;
                         }
@@ -952,7 +981,7 @@ EOF
         ################################################################
         elsif ($line =~ /CREATE SCHEMA \[(.*)\] AUTHORIZATION \[.*\]/)
         {
-            $objects->{relabel_schemas($1)} = undef
+            $objects->{SCHEMAS}->{relabel_schemas($1)} = undef
                 ; # Nothing to add here, we create the schema, and put undef in it for now
         }
         elsif ($line =~ /CREATE\s+PROC(?:EDURE)?\s+\[.*\]\.\[(.*)\]/i)
@@ -1018,7 +1047,7 @@ EOF
 
                     # Views will be stored without the full schema in them. We will
                     # have to generate the schema in the output file
-                    $objects->{$schemaname}->{'VIEWS'}->{$viewname}->{SQL} =
+                    $objects->{SCHEMAS}->{$schemaname}->{'VIEWS'}->{$viewname}->{SQL} =
                         $sql;
                     next MAIN;
                 }
@@ -1035,7 +1064,7 @@ EOF
             $schema=relabel_schemas($schema);
             my $newtype =
                 convert_type($origtype, $quals, undef, undef, $type, $schema);
-            $objects->{$schema}->{DOMAINS}->{$type} = $newtype;
+            $objects->{SCHEMAS}->{$schema}->{DOMAINS}->{$type} = $newtype;
 
             # We add them to known data types, as they probably will be used in table definitions
             # but they point to themselves, with the schema corrected: we want them substituted by themselves
@@ -1085,7 +1114,7 @@ EOF
                     # We reached the end. We add this new type
                     # create the new type declaration
                     $newbasetype=join(",\n",@cols_newbasetype);
-                    $objects->{$schema}->{TABLE_TYPES}->{$typename}=$newbasetype;
+                    $objects->{SCHEMAS}->{$schema}->{TABLE_TYPES}->{$typename}=$newbasetype;
                     # We add this to known data types, it will be used in table definitions
                     $types{$schema . '.' . $typename} = format_identifier($schema) . '.'
                         . format_identifier($typename);  # We store the schema with it. And we do the case conversion, the quoting, etc right now
@@ -1114,12 +1143,12 @@ EOF
             my $tablename   = $5;
             if ($isunique)
             {
-                $objects->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
+                $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
                     ->{$idxname}->{UNIQUE} = 1;
             }
             else
             {
-                $objects->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
+                $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
                     ->{$idxname}->{UNIQUE} = 0;
             }
             while (my $idx = read_and_clean($file))
@@ -1137,12 +1166,12 @@ EOF
                 {
                     if (defined $2)
                     {
-                        push @{$objects->{$schemaname}->{TABLES}->{$tablename}
+                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                                 ->{INDEXES}->{$idxname}->{COLS}}, ("$1 $2");
                     }
                     else
                     {
-                        push @{$objects->{$schemaname}->{TABLES}->{$tablename}
+                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                                 ->{INDEXES}->{$idxname}->{COLS}}, ("$1");
                     }
                 }
@@ -1200,11 +1229,11 @@ EOF
                 }
                 elsif ($consline =~ /^\).*$/)
                 {
-                    push @{$objects->{$schemaname}->{TABLES}->{$tablename}
+                    push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                             ->{CONSTRAINTS}}, ($constraint);
 
                     # We also directly put the constraint reference in a direct path (for ease of use in generate_kettle)
-                    $objects->{$schemaname}->{TABLES}->{$tablename}->{PK} = $constraint;
+                    $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{PK} = $constraint;
                     # We are done here
                     next MAIN;
                 }
@@ -1232,7 +1261,7 @@ EOF
                 # Exit when read a line beginning with ). The constraint is complete
                 if ($uk =~ /^\)/)
                 {
-                    push @{$objects->{$schemaname}->{'TABLES'}->{$tablename}
+                    push @{$objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}
                             ->{CONSTRAINTS}}, ($constraint);
                     next MAIN;
                 }
@@ -1251,16 +1280,16 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?((?:-)?\d+(?:\.\d+)?)\)?\) FOR \[(.*)\]/
             )
         {
-	    if ($objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{TYPE} eq 'boolean')
+	    if ($objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{TYPE} eq 'boolean')
 	    {
 	        # Ok, it IS a boolean, and we have received a number
                 if ($3 eq '0')
                 {
-                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'false';
+                    $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'false';
                 }
                 elsif ($3 eq '1')
                 {
-                    $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'true';
+                    $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'true';
                 }
                 else
                 {
@@ -1270,10 +1299,10 @@ EOF
 	    }
             else
             {
-                $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+                $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                     = $3;
             }
-            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
 
         }
@@ -1282,9 +1311,9 @@ EOF
             )
         {
             # Default text value, text, between commas
-            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                 = "'$3'";
-            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
         }
 
@@ -1294,9 +1323,9 @@ EOF
             )
         {
             # NULL WITHOUT quotes around it !
-            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                 = 'NULL';
-            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 0;
 
         }
@@ -1306,9 +1335,9 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?(.*)\)?\) FOR \[(.*)\]/
             )
         {
-            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
+            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
                 = convert_transactsql_code($3);
-            $objects->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
+            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
                 = 1;
         }
 
@@ -1337,7 +1366,7 @@ EOF
             {
                 if ($fk =~ /^GO/)
                 {
-                    push @{$objects->{$schema}->{'TABLES'}->{$table}
+                    push @{$objects->{SCHEMAS}->{$schema}->{'TABLES'}->{$table}
                             ->{CONSTRAINTS}}, ($constraint);
                     next MAIN;
                 }
@@ -1386,7 +1415,7 @@ EOF
             $constxt =~
                 s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
             $constraint->{TEXT} = $constxt;
-            push @{$objects->{$schema}->{'TABLES'}->{$table}->{CONSTRAINTS}},
+            push @{$objects->{SCHEMAS}->{$schema}->{'TABLES'}->{$table}->{CONSTRAINTS}},
                 ($constraint);
         }
 
@@ -1442,17 +1471,17 @@ EOF
                 $schema=relabel_schemas($schema);
                 if ($obj eq 'TABLE' and not defined $subobj)
                 {
-                    $objects->{$schema}->{TABLES}->{$objname}->{COMMENT} =
+                    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$objname}->{COMMENT} =
                         $comment;
                 }
                 elsif ($obj eq 'VIEW' and not defined $subobj)
                 {
-                    $objects->{$schema}->{VIEWS}->{$objname}->{COMMENT} =
+                    $objects->{SCHEMAS}->{$schema}->{VIEWS}->{$objname}->{COMMENT} =
                         $comment;
                 }
                 elsif ($obj eq 'TABLE' and $subobj eq 'COLUMN')
                 {
-                    $objects->{$schema}->{TABLES}->{$objname}->{COLS}
+                    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$objname}->{COLS}
                         ->{$subobjname}->{COMMENT} = $comment;
                 }
                 else
@@ -1471,7 +1500,7 @@ EOF
                 $schema=relabel_schemas($schema);
                 if ($obj eq 'TABLE')
                 {
-                    $objects->{$schema}->{TABLES}->{$objname}->{COMMENT} =
+                    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$objname}->{COMMENT} =
                         $comment;
                 }
                 elsif ($obj eq 'SCHEMA')
@@ -1580,16 +1609,28 @@ sub generate_schema
     {
         print BEFORE "CREATE EXTENSION IF NOT EXISTS citext;\n";
     }
+    if (defined ($objects->{CASTS}))
+    {
+        foreach my $cast (keys %{$objects->{CASTS}})
+        {
+            # We create the cast in the BEFORE. Add a comment, as this is not obvious
+            print BEFORE "-- Create a cast. Used for the kettle job\n";
+            print BEFORE "CREATE CAST (varchar as $cast) with inout as implicit\n";
+            # We drop the cast in the AFTER
+            print AFTER "-- drop a cast. Used for the kettle job\n";
+            print AFTER "DROP CAST (varchar as $cast)\n";
+        }
+    }
 
     # Ok, we have parsed everything, and definitions are in $objects
     # We will put in the BEFORE file only table and columns definitions.
     # The rest will go in the AFTER script (check constraints, put default values, etc...)
 
     # The schemas. don't create empty schema, sql server creates a schema per user, even if it ends empty
-    foreach my $schema (sort keys %{$objects})
+    foreach my $schema (sort keys %{$objects->{SCHEMAS}})
     {
         unless ($schema eq 'public'
-                or not defined $objects->{$schema})
+                or not defined $objects->{SCHEMAS}->{$schema})
         {
             # Not compatible before 9.3. This is the logical target for this tool anyway
             print BEFORE "CREATE SCHEMA IF NOT EXISTS ",format_identifier($schema),";\n";
@@ -1601,7 +1642,7 @@ sub generate_schema
     # problem with constraints, that will be in the after script, except foreign keys which depend on unique indexes
     # We have to do all domains and types before all tables
     # Don't care for dependancy 
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # The user-defined types (domains, etc)
         foreach my $tabletype (sort keys %{$refschema->{TABLE_TYPES}})
@@ -1612,7 +1653,7 @@ sub generate_schema
 
         print BEFORE "\n";    # We change sections in the dump file
     }
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # The user-defined types (domains, etc)
         foreach my $domain (sort keys %{$refschema->{DOMAINS}})
@@ -1624,7 +1665,7 @@ sub generate_schema
         print BEFORE "\n";    # We change sections in the dump file
     }
     # Tables and columns
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
 
         # The tables
@@ -1653,7 +1694,7 @@ sub generate_schema
         }
     }
     # Sequences, PKs, Indexes
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
             # We now add all "AFTER" objects
             # We start with SEQUENCES, PKs and INDEXES (will be needed for FK)
@@ -1699,7 +1740,7 @@ sub generate_schema
         }
     }
     # Unique
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # Now The UNIQUE constraints. They may be used for FK (if columns are not null)
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1721,7 +1762,7 @@ sub generate_schema
         }
     }
     # Indexes. Unique indexes are needed before foreign key constraints
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # Indexes
         # They don't have a schema qualifier. But their table has, and they are in the same schema as their table
@@ -1744,7 +1785,7 @@ sub generate_schema
         }
     }    
     # Other constraints
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
 
         # We have all we need for FKs now. We can put all other constraints (except PK of course)
@@ -1809,7 +1850,7 @@ sub generate_schema
     }
 
     # Default values
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # Default values
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1834,7 +1875,7 @@ sub generate_schema
         }
     }
     # Comments on tables and columns
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # Comments on tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1857,7 +1898,7 @@ sub generate_schema
         }
     }
     # Views, and their comments
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # The views, and comments
         foreach my $view (sort keys %{$refschema->{VIEWS}})
@@ -1871,7 +1912,7 @@ sub generate_schema
         }
     }
     # Trigger functions
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # The trigger functions
         foreach my $triggerfunc (sort keys %{$refschema->{TRIG_FUNCTIONS}})
@@ -1885,7 +1926,7 @@ sub generate_schema
         }
     }
     # Triggers
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         # triggers on tables, as these functions are declared now
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -1928,7 +1969,7 @@ sub generate_schema
 # We do this schema per schema
 sub resolve_name_conflicts
 {
-    while (my ($schema, $refschema) = each %{$objects})
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
         my %known_names;
 
@@ -2087,7 +2128,7 @@ build_relabel_schemas();
 parse_dump();
 
 # Debug, uncomment:
-#print Dumper($objects);
+print Dumper($objects);
 
 # Rename indexes if they conflict
 resolve_name_conflicts();
