@@ -1615,10 +1615,10 @@ sub generate_schema
         {
             # We create the cast in the BEFORE. Add a comment, as this is not obvious
             print BEFORE "-- Create a cast. Used for the kettle job\n";
-            print BEFORE "CREATE CAST (varchar as $cast) with inout as implicit\n";
+            print BEFORE "CREATE CAST (varchar as $cast) with inout as implicit;\n";
             # We drop the cast in the AFTER
             print AFTER "-- drop a cast. Used for the kettle job\n";
-            print AFTER "DROP CAST (varchar as $cast)\n";
+            print AFTER "DROP CAST (varchar as $cast);\n";
         }
     }
 
