@@ -2128,7 +2128,7 @@ build_relabel_schemas();
 parse_dump();
 
 # Debug, uncomment:
-print Dumper($objects);
+#print Dumper($objects);
 
 # Rename indexes if they conflict
 resolve_name_conflicts();
