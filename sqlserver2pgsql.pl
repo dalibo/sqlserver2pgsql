@@ -41,6 +41,7 @@ our $before_file;
 our $after_file;
 our $unsure_file;
 our $keep_identifier_case;
+our $validate_constraints='yes';
 
 my $template
     ; # These two variables are loaded in the BEGIN block at the end of this file (they are very big
@@ -77,7 +78,8 @@ sub parse_conf_file
                       'no relabel dbo'           => 'norelabel_dbo',
                       'convert numeric to int'   => 'convert_numeric_to_int',
                       'relabel schemas'          => 'relabel_schemas',
-                      'keep identifier case'                => 'keep_identifier_case',
+                      'keep identifier case'     => 'keep_identifier_case',
+                      'validate constraints'     => 'validate_constraints',
                      );
 
     # Open the conf file or die
@@ -1823,8 +1825,18 @@ sub generate_schema
                     {
                         $consdef .= " ON UPDATE CASCADE";
                     }
+                    # We need a name on the constraint to be able to validate it later. Maybe it would be better to generate one
+                    # FIXME: we'll see later if a generator is needed (probably)
+                    if ($constraint->{TYPE} eq 'FK' and ($validate_constraints =~ /^after|no$/) and defined($constraint->{NAME}))
+                    {
+                        $consdef .= " NOT VALID";
+                    }
                     $consdef .= ";\n";
                     print AFTER $consdef;
+                    if ($constraint->{TYPE} eq 'FK' and $validate_constraints eq 'after' and defined $constraint->{NAME})
+                    {
+                        print UNSURE "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " VALIDATE CONSTRAINT " . format_identifier($constraint->{NAME}) . ";\n";
+                    }
                 }
                 elsif ($constraint->{TYPE} eq 'CHECK')
                 {
@@ -2075,7 +2087,8 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "nr"     => \$norelabel_dbo,
                          "num"    => \$convert_numeric_to_int,
                          "relabel_schemas=s" => \$relabel_schemas,
-                         "keep_identifier_case" =>\$keep_identifier_case,);
+                         "keep_identifier_case" =>\$keep_identifier_case,
+                         "validate_constraints=s" =>\$validate_constraints,);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)
@@ -2099,6 +2112,11 @@ if (   not $before_file
 {
     usage();
     exit 1;
+}
+
+if ($validate_constraints !~ '^(yes|after|no)$')
+{
+    die "validate_constraints should be yes, after or no (default yes)\n";
 }
 
 # We have been asked for kettle, but the compulsory parameters are not there

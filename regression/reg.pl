@@ -7,7 +7,7 @@ use Data::Dumper;
 
 foreach my $file (<*.sql>)
 {
-	my @options_to_try=('-i','-nr','-num', '-keep_identifier_case');
+	my @options_to_try=('-i','-nr','-num', '-keep_identifier_case', '-validate_constraints=after');
 	my @all_combinations=('');
 	foreach my $option (@options_to_try)
 	{

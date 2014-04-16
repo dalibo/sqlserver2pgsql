@@ -92,6 +92,10 @@ there is a default dbo=>public remapping, that can be cancelled with -nr. Use do
 -num : Converts numeric (xxx,0) to the appropriate smallint, integer or bigint. It won't keep the constraint on
 the size of the scale of the numeric
 
+-validate_constraints=yes/after/no: for foreign keys, if yes: foreign keys are created as valid in the after script (default)
+                                                      if no: they are created as not valid (enforced only for new rows)
+                                                      if after: they are created as not valid, but the statements to validate them are put in the unsure file
+
 If you want to also import data:
 
 > ./sqlserver2pgsql.pl -b before.sql -a after.sql -u unsure.sql -k kettledir \ 
