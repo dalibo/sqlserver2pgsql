@@ -1893,7 +1893,7 @@ sub generate_schema
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
-            print AFTER "select setval('" . format_identifier($schema) . '.' . format_identifier($sequence) . "',(select max(". format_identifier($seqref->{OWNERCOL}) .") from " . format_identifier($seqref->{OWNERSCHEMA}) . '.'. format_identifier($seqref->{OWNERTABLE}) . "::bigint));\n";
+            print AFTER "select setval('" . format_identifier($schema) . '.' . format_identifier($sequence) . "',(select max(". format_identifier($seqref->{OWNERCOL}) .") from " . format_identifier($seqref->{OWNERSCHEMA}) . '.'. format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
         }
     }
 
