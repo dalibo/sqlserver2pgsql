@@ -2319,7 +2319,7 @@ import java.util.Arrays;
 
 String[] fieldNames;
 long numFields;
-Pattern pattern = Pattern.compile("\00");
+Pattern pattern = Pattern.compile("\\00");
 RowMetaInterface inputRowMeta;
 
 public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws KettleException
@@ -2593,7 +2593,7 @@ import java.util.Arrays;
 
 String[] fieldNames;
 long numFields;
-Pattern pattern = Pattern.compile("\00");
+Pattern pattern = Pattern.compile("\\00");
 RowMetaInterface inputRowMeta;
 
 public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws KettleException
