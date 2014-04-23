@@ -42,6 +42,7 @@ our $after_file;
 our $unsure_file;
 our $keep_identifier_case;
 our $validate_constraints='yes';
+our $parallelism=8;
 
 my $template
     ; # These two variables are loaded in the BEGIN block at the end of this file (they are very big
@@ -516,7 +517,7 @@ sub generate_kettle
                         . '% ${Internal.Step.Unique.Count} = ${Internal.Step.Unique.Number}';
                     $newtemplate =~
                         s/__sqlserver_where_filter__/$wherefilter/;
-                    $newtemplate =~ s/__sqlserver_copies__/4/g;
+                    $newtemplate =~ s/__PARALLELISM__/$parallelism/g;
                 }
                 else
 
@@ -2301,7 +2302,7 @@ BEGIN
     <type>UserDefinedJavaClass</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>4</copies>
+    <copies>__PARALLELISM__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -2413,7 +2414,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>TableOutput</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>4</copies>
+    <copies>__PARALLELISM__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -2575,7 +2576,7 @@ EOF
     <type>UserDefinedJavaClass</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>4</copies>
+    <copies>__PARALLELISM__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -2661,7 +2662,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>TableInput</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__sqlserver_copies__</copies>
+    <copies>__PARALLELISM__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -2686,7 +2687,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>TableOutput</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>4</copies>
+    <copies>__PARALLELISM__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
