@@ -2295,10 +2295,10 @@ BEGIN
     </attributes>
   </connection>
   <order>
-  <hop> <from>Table input</from><to>Modified Java Script Value</to><enabled>Y</enabled> </hop>  <hop> <from>Modified Java Script Value</from><to>Table output</to><enabled>Y</enabled> </hop>  </order>
+  <hop> <from>Table input</from><to>User Defined Java Class</to><enabled>Y</enabled> </hop>  <hop> <from>User Defined Java Class</from><to>Table output</to><enabled>Y</enabled> </hop>  </order>
   <step>
-    <name>Modified Java Script Value</name>
-    <type>ScriptValueMod</type>
+    <name>User Defined Java Class</name>
+    <type>UserDefinedJavaClass</type>
     <description/>
     <distribute>Y</distribute>
     <copies>4</copies>
@@ -2306,20 +2306,79 @@ BEGIN
            <method>none</method>
            <schema_name/>
            </partitioning>
-    <compatible>N</compatible>
-    <optimizationLevel>9</optimizationLevel>
-    <jsScripts>      <jsScript>        <jsScript_type>0</jsScript_type>
-        <jsScript_name>Script 1</jsScript_name>
-        <jsScript_script>for (var i=0;i&lt;getInputRowMeta().size();i++) { 
-  var valueMeta = getInputRowMeta().getValueMeta(i);
-  if (valueMeta.getTypeDesc().equals(&quot;String&quot;)) {
-    row[i]=replace(row[i],&quot;\\00&quot;,&apos;&apos;);
-  }
-}</jsScript_script>
-      </jsScript>    </jsScripts>    <fields>    </fields>     <cluster_schema/>
+
+    <definitions>
+        <definition>
+        <class_type>TRANSFORM_CLASS</class_type>
+
+        <class_name>Processor</class_name>
+
+        <class_source><![CDATA[import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.Arrays;
+
+String[] fieldNames;
+long numFields;
+Pattern pattern = Pattern.compile("\00");
+RowMetaInterface inputRowMeta;
+
+public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws KettleException
+{
+
+    // First, get a row from the default input hop
+        //
+        Object[] r = getRow();
+
+    // If the row object is null, we are done processing.
+        //
+        if (r == null) {
+                setOutputDone();
+                return false;
+        }
+
+        // Let's look up parameters only once for performance reason.
+        // Let's also get field types and names
+        if (first) {
+        inputRowMeta = getInputRowMeta();
+        fieldNames = inputRowMeta.getFieldNames();
+        numFields = fieldNames.length;
+        int fieldnum;
+        for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMeta.TYPE_STRING) {
+                fieldNames[fieldnum]="-1";
+            }
+        }
+            first=false;
+        }
+
+    Object[] outputRow = createOutputRow(r, data.outputRowMeta.size());
+//    Object[] outputRow = RowDataUtil.createResizedCopy(r, data.outputRowMeta.size());
+    int fieldnum;
+    for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+        if (!(fieldNames[fieldnum].equals("-1"))){
+            String inputStr = get(Fields.In,fieldNames[fieldnum]).getString(r);
+            if (inputStr != null) { // else null pointer execption in regexp
+                Matcher matcher = pattern.matcher(inputStr);
+                String newfield = matcher.replaceAll("");
+                get(Fields.Out,fieldNames[fieldnum]).setValue(outputRow,newfield);
+            }
+        }
+    }
+
+    // putRow will send the row on to the default output hop.
+        //
+    putRow(data.outputRowMeta, outputRow);
+
+        return true;
+}]]></class_source>
+        </definition>
+    </definitions>
+   <fields>
+    </fields><clear_result_fields>N</clear_result_fields>
+<info_steps></info_steps><target_steps></target_steps><usage_parameters></usage_parameters>     <cluster_schema/>
  <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
-      <xloc>243</xloc>
-      <yloc>159</yloc>
+      <xloc>280</xloc>
+      <yloc>332</yloc>
       <draw>Y</draw>
       </GUI>
     </step>
@@ -2510,35 +2569,93 @@ EOF
     </attributes>
   </connection>
   <order>
-  <hop> <from>Table input</from><to>Modified Java Script Value</to><enabled>Y</enabled> </hop>  <hop> <from>Modified Java Script Value</from><to>Table output</to><enabled>Y</enabled> </hop>  </order>
+  <hop> <from>Table input</from><to>User Defined Java Class</to><enabled>Y</enabled> </hop>  <hop> <from>User Defined Java Class</from><to>Table output</to><enabled>Y</enabled> </hop>  </order>
   <step>
-    <name>Modified Java Script Value</name>
-    <type>ScriptValueMod</type>
+    <name>User Defined Java Class</name>
+    <type>UserDefinedJavaClass</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__sqlserver_copies__</copies>
+    <copies>4</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
            </partitioning>
-    <compatible>N</compatible>
-    <optimizationLevel>9</optimizationLevel>
-    <jsScripts>      <jsScript>        <jsScript_type>0</jsScript_type>
-        <jsScript_name>Script 1</jsScript_name>
-        <jsScript_script>for (var i=0;i&lt;getInputRowMeta().size();i++) { 
-  var valueMeta = getInputRowMeta().getValueMeta(i);
-  if (valueMeta.getTypeDesc().equals(&quot;String&quot;)) {
-    row[i]=replace(row[i],&quot;\\00&quot;,&apos;&apos;);
-  }
-}</jsScript_script>
-      </jsScript>    </jsScripts>    <fields>    </fields>     <cluster_schema/>
+
+    <definitions>
+        <definition>
+        <class_type>TRANSFORM_CLASS</class_type>
+
+        <class_name>Processor</class_name>
+
+        <class_source><![CDATA[import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.Arrays;
+
+String[] fieldNames;
+long numFields;
+Pattern pattern = Pattern.compile("\00");
+RowMetaInterface inputRowMeta;
+
+public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws KettleException
+{
+
+    // First, get a row from the default input hop
+        //
+        Object[] r = getRow();
+
+    // If the row object is null, we are done processing.
+        //
+        if (r == null) {
+                setOutputDone();
+                return false;
+        }
+
+        // Let's look up parameters only once for performance reason.
+       // Let's also get field types and names
+        if (first) {
+        inputRowMeta = getInputRowMeta();
+        fieldNames = inputRowMeta.getFieldNames();
+        numFields = fieldNames.length;
+        int fieldnum;
+        for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMeta.TYPE_STRING) {
+                fieldNames[fieldnum]="-1";
+            }
+        }
+            first=false;
+        }
+
+    Object[] outputRow = createOutputRow(r, data.outputRowMeta.size());
+//    Object[] outputRow = RowDataUtil.createResizedCopy(r, data.outputRowMeta.size());
+    int fieldnum;
+    for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+        if (!(fieldNames[fieldnum].equals("-1"))){
+            String inputStr = get(Fields.In,fieldNames[fieldnum]).getString(r);
+            if (inputStr != null) { // else null pointer execption in regexp
+                Matcher matcher = pattern.matcher(inputStr);
+                String newfield = matcher.replaceAll("");
+                get(Fields.Out,fieldNames[fieldnum]).setValue(outputRow,newfield);
+            }
+        }
+    }
+
+    // putRow will send the row on to the default output hop.
+        //
+    putRow(data.outputRowMeta, outputRow);
+
+        return true;
+}]]></class_source>
+        </definition>
+    </definitions>
+    <fields>
+    </fields><clear_result_fields>N</clear_result_fields>
+<info_steps></info_steps><target_steps></target_steps><usage_parameters></usage_parameters>     <cluster_schema/>
  <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
-      <xloc>243</xloc>
-      <yloc>159</yloc>
+      <xloc>280</xloc>
+      <yloc>332</yloc>
       <draw>Y</draw>
       </GUI>
     </step>
-
   <step>
     <name>Table input</name>
     <type>TableInput</type>
