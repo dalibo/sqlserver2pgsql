@@ -888,7 +888,7 @@ sub parse_dump
                     $code =~ s/\[(.*?)\]/NEW.$1/g;
                     my $triggerfunc = <<EOF;
 begin
-  NEW.NOUVEAU=$code;
+  NEW.$colname=$code;
   RETURN NEW;
 end;
 EOF
