@@ -517,7 +517,6 @@ sub generate_kettle
                         . '% ${Internal.Step.Unique.Count} = ${Internal.Step.Unique.Number}';
                     $newtemplate =~
                         s/__sqlserver_where_filter__/$wherefilter/;
-                    $newtemplate =~ s/__PARALLELISM__/$parallelism/g;
                 }
                 else
 
@@ -566,6 +565,7 @@ sub generate_kettle
             my $pgschema=format_identifier($targetschema);
             $newtemplate =~ s/__postgres_table_name__/$pgtable/g;
             $newtemplate =~ s/__postgres_schema_name__/$pgschema/g;
+            $newtemplate =~ s/__PARALLELISM__/$parallelism/g;
 
             # Store this new transformation into its file
             open FILE, ">$dir/$schema-$table.ktr"
