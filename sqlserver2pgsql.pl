@@ -2345,7 +2345,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
         numFields = fieldNames.length;
         int fieldnum;
         for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
-            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMeta.TYPE_STRING) {
+            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMetaInterface.TYPE_STRING) {
                 fieldNames[fieldnum]="-1";
             }
         }
@@ -2619,7 +2619,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
         numFields = fieldNames.length;
         int fieldnum;
         for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
-            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMeta.TYPE_STRING) {
+            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMetaInterface.TYPE_STRING) {
                 fieldNames[fieldnum]="-1";
             }
         }
