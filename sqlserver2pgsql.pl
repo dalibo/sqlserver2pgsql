@@ -885,6 +885,7 @@ sub parse_dump
                     print STDERR "\tPlease review it.\n";
 
                     # Try to correct what can be corrected from the AS : replace [COL] with NEW.COL
+                    # It is obviously not going to work for anything a bit complicated
                     $code =~ s/\[(.*?)\]/NEW.$1/g;
                     my $triggerfunc = <<EOF;
 begin
@@ -1193,7 +1194,7 @@ EOF
         # Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
         # PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
         elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD \[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)$/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD \[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(?: CONSTRAINT \[.*\] )?(?: DEFAULT \(.*\))?$/
             )
         {
             my $schemaname=relabel_schemas($1);
@@ -1204,7 +1205,12 @@ EOF
             my $colqual=$6;
             my $isidentity=$7;
             my $colisnull=$8;
+            my $default=$9;
             add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
+            if (defined $default)
+            {
+                $objects->{SCHEMAS}->{relabel_schemas($schemaname)}->{TABLES}->{$tablename}->{COLS}->{$colname}->{DEFAULT}->{VALUE} = $default;
+            }
         }
 
         # Table constraints
