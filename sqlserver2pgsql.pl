@@ -2299,6 +2299,7 @@ BEGIN
       <attribute><code>QUOTE_ALL_FIELDS</code><attribute>Y</attribute></attribute>
       <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+      <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
     </attributes>
   </connection>
   <order>
@@ -2428,7 +2429,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <connection>__postgres_db__</connection>
     <schema>__postgres_schema_name__</schema>
     <table>__postgres_table_name__</table>
-    <commit>500</commit>
+    <commit>100</commit>
     <truncate>Y</truncate>
     <ignore_errors>N</ignore_errors>
     <use_batch>Y</use_batch>
@@ -2573,6 +2574,7 @@ EOF
       <attribute><code>QUOTE_ALL_FIELDS</code><attribute>Y</attribute></attribute>
       <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+      <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
     </attributes>
   </connection>
   <order>
