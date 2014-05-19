@@ -51,6 +51,7 @@ my ($job_header, $job_middle, $job_footer)
     ;                # These are used to create the static parts of the job
 my ($job_entry, $job_hop)
     ;    # These are used to create the dynamic parts of the job (XML file)
+my @view_list; # array to keep view ordering from sql server's dump (a view may depend on another view)
 
 # Opens the configuration file
 # Sets $sd $sh $sp $su $sw $pd $ph $pp $pu $pw when they are not set in the command line already
@@ -1053,6 +1054,8 @@ EOF
                     # have to generate the schema in the output file
                     $objects->{SCHEMAS}->{$schemaname}->{'VIEWS'}->{$viewname}->{SQL} =
                         $sql;
+                    my @view_array=($schemaname,$viewname);
+                    push @view_list,(\@view_array); # adds another schema/view to the list
                     next MAIN;
                 }
                 $sql .= $line_cont;
@@ -1929,17 +1932,16 @@ sub generate_schema
         }
     }
     # Views, and their comments
-    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
+    # This is different from other objets: we keep the views ordering
+    foreach my $viewref(@view_list)
     {
-        # The views, and comments
-        foreach my $view (sort keys %{$refschema->{VIEWS}})
+        my ($schema,$view)=@$viewref;
+        my $refschema=$objects->{SCHEMAS}->{$schema};
+        print UNSURE $refschema->{VIEWS}->{$view}->{SQL}, ";\n";
+        if (defined $refschema->{VIEWS}->{$view}->{COMMENT})
         {
-            print UNSURE $refschema->{VIEWS}->{$view}->{SQL}, ";\n";
-            if (defined $refschema->{VIEWS}->{$view}->{COMMENT})
-            {
-                print UNSURE "COMMENT ON VIEW $schema.$view IS '"
-                    . $refschema->{VIEWS}->{$view}->{COMMENT} . "';\n";
-            }
+            print UNSURE "COMMENT ON VIEW $schema.$view IS '"
+                . $refschema->{VIEWS}->{$view}->{COMMENT} . "';\n";
         }
     }
     # Trigger functions
@@ -2165,7 +2167,7 @@ build_relabel_schemas();
 parse_dump();
 
 # Debug, uncomment:
-#print Dumper($objects);
+print Dumper($objects);
 
 # Rename indexes if they conflict
 resolve_name_conflicts();
