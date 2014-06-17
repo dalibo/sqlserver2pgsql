@@ -9,7 +9,6 @@ It is written in Perl.
 It does two things:
 
   * convert a SQL Server schema to a PostgreSQL schema
-
   * produce a Pentaho Data Integrator (Kettle) job to migrate 
     all the data from SQL Server to PostgreSQL. This second part is optionnal
 
@@ -28,6 +27,12 @@ with Windows, and on any Unix system.
 
 
 You'll need to install a few things to make it work. See INSTALL.md
+
+Install
+==========================
+
+See https://github.com/dalibo/sqlserver2pgsql/blob/master/INSTALL.md
+
 
 Usage
 =============================
@@ -57,7 +62,7 @@ run sqlserver2pgsql.pl from.
 
 If you just want to convert this schema, run:
 
-> sqlserver2pgsql.pl -f my_sqlserver_script.txt -b name_of_before_script -a name_of_after_script -u name_of_unsure_script
+  > sqlserver2pgsql.pl -f my_sqlserver_script.txt -b name_of_before_script -a name_of_after_script -u name_of_unsure_script
 
 The before script contains what is needed to import data (types, tables and columns).
 The after script contains the rest (indexes, constraints). It should be run
@@ -87,9 +92,9 @@ the size of the scale of the numeric
 
 If you want to also import data:
 
-> ./sqlserver2pgsql.pl -b before.sql -a after.sql -u unsure.sql -k kettledir \ 
-  -sd source -sh 192.168.0.2 -sp 1433 -su dalibo -sw mysqlpass \
-  -pd dest -ph localhost -pp 5432 -pu dalibo -pw mypgpass -f sql_server_schema.sql
+  > ./sqlserver2pgsql.pl -b before.sql -a after.sql -u unsure.sql -k kettledir \ 
+    -sd source -sh 192.168.0.2 -sp 1433 -su dalibo -sw mysqlpass \
+    -pd dest -ph localhost -pp 5432 -pu dalibo -pw mypgpass -f sql_server_schema.sql
 
 -k is the directory where you want to store the kettle xml files (there will be
 one for each table to copy, plus the one for the job)
@@ -110,23 +115,31 @@ cleartext, so don't make this directory public):
 
 You've generated everything. Let's do the import:
 
-# Run the before script (creates the tables)
-> psql -U mypguser mypgdatabase -f name_of_before_script
-# Run the kettle job:
-> cd my_kettle_installation_directory
-> ./kitchen.sh -file=full_path_to_kettle_job_dir/migration.kjb -level=detailed
-# Run the after script (creates the indexes, constraints...)
-> psql -U mypguser mypgdatabase -f name_of_after_script
+```
+  # Run the before script (creates the tables)
+  > psql -U mypguser mypgdatabase -f name_of_before_script
+  # Run the kettle job:
+  > cd my_kettle_installation_directory
+  > ./kitchen.sh -file=full_path_to_kettle_job_dir/migration.kjb -level=detailed
+  # Run the after script (creates the indexes, constraints...)
+  > psql -U mypguser mypgdatabase -f name_of_after_script
+```
 
 If you want to dig deeper into the kettle job, you can use kettle_report.pl to display the individual table's transfer performance. Then, if needed, you'll be able to modify the Kettle job to optimize it, using Spoon, Kettle's GUI
 
 You can also use a configuration file if you like:
 
-> ./sqlserver2pgsql.pl -conf example_conf_file -f mydatabase_dump.sql
+  > ./sqlserver2pgsql.pl -conf example_conf_file -f mydatabase_dump.sql
 
 There is an example configuration file provided. You can also mix the configuration file with command line options. Command line options have the priority over values set in the configuration file.
 
+FAQ
 ================================
-Licence: GPL v3
 
-http://www.gnu.org/licenses/gpl.html
+See https://github.com/dalibo/sqlserver2pgsql/blob/master/FAQ.md
+
+
+Licence
+================================
+
+GPL v3 : http://www.gnu.org/licenses/gpl.html
