@@ -26,22 +26,11 @@ It won't migrate PL procedures, the languages are too different.
 I usually only test this script under Linux. It should work on Windows, as I had to do it once
 with Windows, and on any Unix system.
 
-Installation:
-==========================
-Nothing to do on this part, as long as you don't want to use the data migration part: the script
-has no dependancy on fancy Perl modules, it only uses modules from the base perl distribution.
 
-Just run the script with your perl interpreter, providing it with the requested options (--help
-will tell you what to do).
+You'll need to install a few things to make it work. See INSTALL.md
 
-If you want to migrate the data, you'll need "Kettle", an Open Source ETL. Get the latest version
-from here: http://kettle.pentaho.com/ .
-You'll also need a SQL Server account with the permission to SELECT from the tables you want to migrate.
-
-As Kettle is a Java program, you'll also need a recent JVM (Java 6 or 7 should do the trick).
-
-==========================
-
+Usage
+=============================
 Ok, I have installed Kettle and Java, I have sqlserver2pgsql.pl, what do I do now ?
 
 You'll need several things:
@@ -136,26 +125,6 @@ You can also use a configuration file if you like:
 > ./sqlserver2pgsql.pl -conf example_conf_file -f mydatabase_dump.sql
 
 There is an example configuration file provided. You can also mix the configuration file with command line options. Command line options have the priority over values set in the configuration file.
-
-================================
-FAQ:
-
-Why didn't you do everything in the Perl script ? I don't want to use Kettle.
-
-Because I have once installed a Perl DBD driver for MS SQL's server, and I don't want to ever do it again... nor 
-force you to do it :) You can either do it using ODBC, or using Sybase's driver. In both case, it will take you 
-quite a while, and you'll suffer with large objects. With Kettle, on the other hand, you're using the JBDC driver, 
-which is already one of Kettle's default drivers, along with PostgreSQL. So all the heavy lifting (converting 
-LOBs and IMAGES and whatever to bytea) is directly done by both JDBC drivers, and should work with no efforts 
-(except maybe adjust Java's memory parameters). If you get a memory error, try setting a JAVAMAXMEM environment 
-variable to a higher value (4096) for 4GB for instance.
-
-
-
-What is this IGNORE NULLS I have to change in kettle.properties ?
-
-Because Kettle behaves by default the way Oracle behaves: for Oracle, a NULL and an empty string are the same. 
-You don't want this here, because neither SQL Server nor PostgreSQL do this.
 
 ================================
 Licence: GPL v3
