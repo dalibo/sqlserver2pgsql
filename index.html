@@ -41,9 +41,9 @@
 <p>It does two things:</p>
 
 <ul>
-<li><p>convert a SQL Server schema to a PostgreSQL schema</p></li>
-<li><p>produce a Pentaho Data Integrator (Kettle) job to migrate 
-all the data from SQL Server to PostgreSQL. This second part is optionnal</p></li>
+<li>convert a SQL Server schema to a PostgreSQL schema</li>
+<li>produce a Pentaho Data Integrator (Kettle) job to migrate 
+all the data from SQL Server to PostgreSQL. This second part is optionnal</li>
 </ul><h1>
 <a name="notes-warnings" class="anchor" href="#notes-warnings"><span class="octicon octicon-link"></span></a>Notes, warnings:</h1>
 
@@ -57,22 +57,15 @@ problem you are facing. I'll try to improve the code, but I need this SQL dump.<
 <p>I usually only test this script under Linux. It should work on Windows, as I had to do it once
 with Windows, and on any Unix system.</p>
 
+<p>You'll need to install a few things to make it work. See INSTALL.md</p>
+
 <h1>
-<a name="installation" class="anchor" href="#installation"><span class="octicon octicon-link"></span></a>Installation:</h1>
+<a name="install" class="anchor" href="#install"><span class="octicon octicon-link"></span></a>Install</h1>
 
-<p>Nothing to do on this part, as long as you don't want to use the data migration part: the script
-has no dependancy on fancy Perl modules, it only uses modules from the base perl distribution.</p>
+<p>See <a href="https://github.com/dalibo/sqlserver2pgsql/blob/master/INSTALL.md">https://github.com/dalibo/sqlserver2pgsql/blob/master/INSTALL.md</a></p>
 
-<p>Just run the script with your perl interpreter, providing it with the requested options (--help
-will tell you what to do).</p>
-
-<p>If you want to migrate the data, you'll need "Kettle", an Open Source ETL. Get the latest version
-from here: <a href="http://kettle.pentaho.com/">http://kettle.pentaho.com/</a> .
-You'll also need a SQL Server account with the permission to SELECT from the tables you want to migrate.</p>
-
-<p>As Kettle is a Java program, you'll also need a recent JVM (Java 6 or 7 should do the trick).</p>
-
-<h1></h1>
+<h1>
+<a name="usage" class="anchor" href="#usage"><span class="octicon octicon-link"></span></a>Usage</h1>
 
 <p>Ok, I have installed Kettle and Java, I have sqlserver2pgsql.pl, what do I do now ?</p>
 
@@ -135,8 +128,8 @@ the size of the scale of the numeric</p>
 
 <blockquote>
 <p>./sqlserver2pgsql.pl -b before.sql -a after.sql -u unsure.sql -k kettledir \ 
-  -sd source -sh 192.168.0.2 -sp 1433 -su dalibo -sw mysqlpass \
-  -pd dest -ph localhost -pp 5432 -pu dalibo -pw mypgpass -f sql_server_schema.sql</p>
+    -sd source -sh 192.168.0.2 -sp 1433 -su dalibo -sw mysqlpass \
+    -pd dest -ph localhost -pp 5432 -pu dalibo -pw mypgpass -f sql_server_schema.sql</p>
 </blockquote>
 
 <p>-k is the directory where you want to store the kettle xml files (there will be
@@ -158,23 +151,14 @@ cleartext, so don't make this directory public):
 
 <p>You've generated everything. Let's do the import:</p>
 
-<h1>
-<a name="run-the-before-script-creates-the-tables" class="anchor" href="#run-the-before-script-creates-the-tables"><span class="octicon octicon-link"></span></a>Run the before script (creates the tables)</h1>
-
-<blockquote>
-<p>psql -U mypguser mypgdatabase -f name_of_before_script</p>
-
-<h1>
-<a name="run-the-kettle-job" class="anchor" href="#run-the-kettle-job"><span class="octicon octicon-link"></span></a>Run the kettle job:</h1>
-
-<p>cd my_kettle_installation_directory
-./kitchen.sh -file=full_path_to_kettle_job_dir/migration.kjb -level=detailed</p>
-
-<h1>
-<a name="run-the-after-script-creates-the-indexes-constraints" class="anchor" href="#run-the-after-script-creates-the-indexes-constraints"><span class="octicon octicon-link"></span></a>Run the after script (creates the indexes, constraints...)</h1>
-
-<p>psql -U mypguser mypgdatabase -f name_of_after_script</p>
-</blockquote>
+<pre><code>  # Run the before script (creates the tables)
+  &gt; psql -U mypguser mypgdatabase -f name_of_before_script
+  # Run the kettle job:
+  &gt; cd my_kettle_installation_directory
+  &gt; ./kitchen.sh -file=full_path_to_kettle_job_dir/migration.kjb -level=detailed
+  # Run the after script (creates the indexes, constraints...)
+  &gt; psql -U mypguser mypgdatabase -f name_of_after_script
+</code></pre>
 
 <p>If you want to dig deeper into the kettle job, you can use kettle_report.pl to display the individual table's transfer performance. Then, if needed, you'll be able to modify the Kettle job to optimize it, using Spoon, Kettle's GUI</p>
 
@@ -186,30 +170,15 @@ cleartext, so don't make this directory public):
 
 <p>There is an example configuration file provided. You can also mix the configuration file with command line options. Command line options have the priority over values set in the configuration file.</p>
 
-<h1></h1>
+<h1>
+<a name="faq" class="anchor" href="#faq"><span class="octicon octicon-link"></span></a>FAQ</h1>
 
-<p>FAQ:</p>
+<p>See <a href="https://github.com/dalibo/sqlserver2pgsql/blob/master/FAQ.md">https://github.com/dalibo/sqlserver2pgsql/blob/master/FAQ.md</a></p>
 
-<p>Why didn't you do everything in the Perl script ? I don't want to use Kettle.</p>
+<h1>
+<a name="licence" class="anchor" href="#licence"><span class="octicon octicon-link"></span></a>Licence</h1>
 
-<p>Because I have once installed a Perl DBD driver for MS SQL's server, and I don't want to ever do it again... nor 
-force you to do it :) You can either do it using ODBC, or using Sybase's driver. In both case, it will take you 
-quite a while, and you'll suffer with large objects. With Kettle, on the other hand, you're using the JBDC driver, 
-which is already one of Kettle's default drivers, along with PostgreSQL. So all the heavy lifting (converting 
-LOBs and IMAGES and whatever to bytea) is directly done by both JDBC drivers, and should work with no efforts 
-(except maybe adjust Java's memory parameters). If you get a memory error, try setting a JAVAMAXMEM environment 
-variable to a higher value (4096) for 4GB for instance.</p>
-
-<p>What is this IGNORE NULLS I have to change in kettle.properties ?</p>
-
-<p>Because Kettle behaves by default the way Oracle behaves: for Oracle, a NULL and an empty string are the same. 
-You don't want this here, because neither SQL Server nor PostgreSQL do this.</p>
-
-<h1></h1>
-
-<p>Licence: GPL v3</p>
-
-<p><a href="http://www.gnu.org/licenses/gpl.html">http://www.gnu.org/licenses/gpl.html</a></p>
+<p>GPL v3 : <a href="http://www.gnu.org/licenses/gpl.html">http://www.gnu.org/licenses/gpl.html</a></p>
       </section>
     </div>
 
