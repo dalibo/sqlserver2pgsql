@@ -227,6 +227,11 @@ sub convert_type
             $rettype="numeric($sqlqual)";
         }
     }
+    elsif ($sqlstype eq 'sysname')
+    {
+        # Special case. This is an internal type, and should seldom be used in production. Converted to varchar(128)
+        $rettype='varchar(128)';
+    }
     else
     {
         print "Types: ", Dumper(\%types);
@@ -2167,7 +2172,7 @@ build_relabel_schemas();
 parse_dump();
 
 # Debug, uncomment:
-print Dumper($objects);
+#print Dumper($objects);
 
 # Rename indexes if they conflict
 resolve_name_conflicts();
