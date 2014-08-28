@@ -43,10 +43,15 @@ our $unsure_file;
 our $keep_identifier_case;
 our $validate_constraints='yes';
 our $parallelism=8;
+our $sort_size=10000;
+our $use_pk_if_possible=0;
 
-my $template
-    ; # These two variables are loaded in the BEGIN block at the end of this file (they are very big
-my $template_lob;    # putting them there won't pollute the code as much)
+# These three variables are loaded in the BEGIN block at the end of this file (they are very big
+my $template; 
+my $template_lob;
+my $incremental_template;
+my $incremental_template_sortable_pk;
+
 my ($job_header, $job_middle, $job_footer)
     ;                # These are used to create the static parts of the job
 my ($job_entry, $job_hop)
@@ -82,6 +87,8 @@ sub parse_conf_file
                       'relabel schemas'          => 'relabel_schemas',
                       'keep identifier case'     => 'keep_identifier_case',
                       'validate constraints'     => 'validate_constraints',
+                      'sort size'                => 'sort_size',
+                      'use pk if possible'       => 'use_pk_if_possible',
                      );
 
     # Open the conf file or die
@@ -288,6 +295,53 @@ sub convert_type
     return $rettype;
 }
 
+# This function is used for selects from SQL Server, in kettle. It adds a function call
+# if there is a conversion to be done.
+# uniqueidentifier is upper case in SQL Server, whereas uuid is lower case in PG
+sub sql_convert_column
+{
+    my ($colname,$coltype)=@_;
+    my %functions = ( 'uuid' => 'lower');
+    if (defined ($functions{$coltype}))
+    {
+        return $functions{$coltype} . '([' . $colname . '])';
+    }
+    else
+    {
+        return "[$colname]";
+    }
+}
+
+# This function is used to determine if a PK will be sorted the same in SQL Server and PG
+# It means that it doesn't depend on collation orders or other internals.
+# For now, only numeric and date data types are considered OK
+# Used for incremental jobs, to know if we can ask the databases to send us pre-sorted data
+# We also filter on $use_pk_if_possible
+sub is_pk_sort_order_safe
+{
+        my ($schema,$table)=@_;
+        my %safe_types = ('numeric'          => 1,
+                          'int'              => 1,
+                          'bigint'           => 1,
+                          'smallint'         => 1,
+                          'real'             => 1,
+                          'double precision' => 1,
+                          'date'             => 1,
+                          'timestamp'        => 1,
+                      );
+        return 0 unless (defined $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{PK}); # There is no PK
+        return 0 unless ($use_pk_if_possible =~ /\b${schema}\.${table}\b/i or $use_pk_if_possible eq '1');
+        my $pk=$objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{PK};
+        my $isok=1;
+        # It is OK as long as all types are in %safe_type
+        foreach my $col (@{$pk->{COLS}})
+        {
+            $isok=0 unless defined ($safe_types{$objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{TYPE}});
+        }
+        return $isok;
+}
+
+
 # This function formats the identifiers (object name), putting double quotes around it
 # It also converts case if asked
 sub format_identifier
@@ -459,6 +513,10 @@ sub usage
         "-keep_identifier_case tells $0 to keep the case of sql server database objects (not advised). Default is to lowercase everything.\n";
     print "before_file contains the structure\n";
     print "after_file contains index, constraints\n";
+    print "validate_constraint validates the constraints that have been created\n";
+    print "sort_size will change size of sort batch for the incremental job. Too small and it will be slow, too big and you will get Java Out of Heap Memory errors.\n";
+    print "sort_size is 10000, which is very low, to try to avoid problems. First, raise java heap memory (in the kitchen script), then try higher values if you need more speed\n";
+    print "use_pk_if_possible is false (0) by default. You can put it to 1 (true), or give a comma separated list of tables (with schema). Compared case insensitively\n";
     print
         "unsure_file contains things we cannot guarantee will work, such as views\n";
     print "\n";
@@ -490,6 +548,7 @@ sub generate_kettle
     }
 
     # For each table in each schema in $objects, we generate a kettle file in the directory
+    # We also create an incremental transformation
 
     foreach my $schema (sort keys %{$objects->{SCHEMAS}})
     {
@@ -538,6 +597,21 @@ sub generate_kettle
             {
                 $newtemplate = $template;
             }
+            # We have a similar question for incremental jobs: can we use the primary key ?
+            # We obviously need a primary key, and we need the sort order to be the same in both databases
+            my $newincrementaltemplate;
+            if (is_pk_sort_order_safe($schema,$table))
+            {
+                $newincrementaltemplate=$incremental_template_sortable_pk;
+                my $collist=join(',',@{$refschema->{TABLES}->{$table}->{PK}->{COLS}});
+                $newincrementaltemplate =~ s/__sqlserver_pk_condition__/$collist/g;
+                $newincrementaltemplate =~ s/__pg_pk_condition__/$collist/g;
+            }
+            else
+            {
+                $newincrementaltemplate=$incremental_template;
+            }
+            
 
             # Build the column list of the table to put into the SQL Server query
             my @colsdef;
@@ -549,12 +623,16 @@ sub generate_kettle
                 } (keys %{$refschema->{TABLES}->{$table}->{COLS}}))
 
             {
-                my $coldef = "[$col] AS " . format_identifier($col);
+                my $coldef = sql_convert_column($col,$refschema->{TABLES}->{$table}->{COLS}->{$col}->{TYPE}) . " AS " . format_identifier($col);
                 push @colsdef,($coldef);
             }
             my $colsdef=join(',',@colsdef);
 
-            # Substitute every connection placeholder with the real value
+            my $pgtable=format_identifier($table);
+            my $pgschema=format_identifier($targetschema);
+
+            # Substitute every connection placeholder with the real value. We do this for both templates
+            $newtemplate =~ s/__sqlserver_database__/$sd/g;
             $newtemplate =~ s/__sqlserver_database__/$sd/g;
             $newtemplate =~ s/__sqlserver_host__/$sh/g;
             $newtemplate =~ s/__sqlserver_port__/$sp/g;
@@ -567,12 +645,91 @@ sub generate_kettle
             $newtemplate =~ s/__postgres_password__/$pw/g;
             $newtemplate =~ s/__sqlserver_table_name__/[$origschema].[$table]/g;
             $newtemplate =~ s/__sqlserver_table_cols__/$colsdef/g;
-            my $pgtable=format_identifier($table);
-            my $pgschema=format_identifier($targetschema);
             $newtemplate =~ s/__postgres_table_name__/$pgtable/g;
             $newtemplate =~ s/__postgres_schema_name__/$pgschema/g;
             $newtemplate =~ s/__PARALLELISM__/$parallelism/g;
 
+
+            $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
+            $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
+            $newincrementaltemplate =~ s/__sqlserver_host__/$sh/g;
+            $newincrementaltemplate =~ s/__sqlserver_port__/$sp/g;
+            $newincrementaltemplate =~ s/__sqlserver_username__/$su/g;
+            $newincrementaltemplate =~ s/__sqlserver_password__/$sw/g;
+            $newincrementaltemplate =~ s/__postgres_database__/$pd/g;
+            $newincrementaltemplate =~ s/__postgres_host__/$ph/g;
+            $newincrementaltemplate =~ s/__postgres_port__/$pp/g;
+            $newincrementaltemplate =~ s/__postgres_username__/$pu/g;
+            $newincrementaltemplate =~ s/__postgres_password__/$pw/g;
+            $newincrementaltemplate =~ s/__sqlserver_table_name__/[$origschema].[$table]/g;
+            $newincrementaltemplate =~ s/__sqlserver_table_cols__/$colsdef/g;
+            $newincrementaltemplate =~ s/__postgres_table_name__/$pgtable/g;
+            $newincrementaltemplate =~ s/__postgres_schema_name__/$pgschema/g;
+            $newincrementaltemplate =~ s/__PARALLELISM__/$parallelism/g;
+            $newincrementaltemplate =~ s/__sort_size__/$sort_size/g;
+
+            # We have a bit of work to do on primary keys for the incremental template: we need them
+            # to compare the tables…
+            if (defined($refschema->{TABLES}->{$table}->{PK}->{COLS}))
+            {
+	      my @pk=@{$refschema->{TABLES}->{$table}->{PK}->{COLS}};
+	      my $keys;
+	      foreach my $pk(@pk)
+	      {
+		$keys.="<key>$pk</key>\n";
+	      }
+	      $newincrementaltemplate =~ s/__KEYS_MERGE__/$keys/g;
+	    
+	      my $sortkeys='';
+              my $synckeys='';
+	      foreach my $pk(@pk)
+	      {
+		$sortkeys.="<field>\n<name>$pk</name>\n<ascending>Y</ascending>\n<case_sensitive>Y</case_sensitive>\n</field>\n";
+                my $outcol=$pk;
+                unless ($keep_identifier_case)
+                {
+                   $outcol=lc($outcol);
+                }
+                $synckeys.="<key>\n<name>$pk</name>\n<field>$outcol</field>\n<condition>&#x3d;</condition>\n<name2/>\n</key>\n";
+
+	      }
+	      $newincrementaltemplate =~ s/__SORT_KEYS_SQLSERVER__/$sortkeys/g;
+	      $newincrementaltemplate =~ s/__SORT_KEYS_PG__/$sortkeys/g;
+              $newincrementaltemplate =~ s/__KEYS_SYNC__/$synckeys/g;
+	      
+	      # We also need to tell the merge step to compare all columns
+	      my $valuesmerge='';
+              my $valuessync='';
+	      foreach my $colname (keys(%{$refschema->{TABLES}->{$table}->{COLS}}))
+	      {
+		# Is it a member of the PK ? If yes, no need to use it for comparison
+#FIXME:		unless (scalar(grep(/^${colname}$/,@pk))) # Does grep find an element in the array matching colname ?
+#		{
+		  $valuesmerge.="<value>$colname</value>\n";
+                  # we need to use the correct case for postgresql output
+                  my $outcol=$colname;
+                  unless ($keep_identifier_case)
+                  {
+                     $outcol=lc($outcol);
+                  }
+                  $valuessync.="<value>\n<name>$outcol</name>\n<rename>$colname</rename>\n<update>Y</update>\n</value>\n";
+#		}
+	      }
+              $newincrementaltemplate =~ s/__VALUES_MERGE__/$valuesmerge/g;
+              $newincrementaltemplate =~ s/__VALUES_SYNC__/$valuessync/g;
+
+	      
+	      # Produce the incremental transformation
+	      open FILE, ">$dir/incremental-$schema-$table.ktr"
+		  or die "Cannot write to $dir/incremental-$schema-$table.ktr";
+	      binmode(FILE,":utf8");
+	      print FILE $newincrementaltemplate;
+	      close FILE;	      
+	    }
+            else
+            {
+              print STDERR "$schema/$table has no PK. Cannot create an incremental transformation\n";
+            }
             # Store this new transformation into its file
             open FILE, ">$dir/$schema-$table.ktr"
                 or die "Cannot write to $dir/$schema-$table.ktr";
@@ -584,17 +741,33 @@ sub generate_kettle
 
     # All transformations are done
     # We have to create a job to launch everything in one go
-    open FILE, ">$dir/migration.kjb"
+    # We also create an incremental job. This incremental job
+    # first deactivates all constraints (with triggers), then
+    # runs all incremental jobs, and "standard" jobs for all those
+    # tables where we cannot do incremental (no PK...)
+    open JOBFILE, ">$dir/migration.kjb"
         or die "Cannot write to $dir/migration.kjb";
+    open INCFILE, ">$dir/incremental.kjb"
+        or die "Cannot write to $dir/incremental.kjb";
     my $real_dir     = getcwd;
     my $entries      = '';
+    my $incentries   = '';
     my $hops         = '';
-    my $prev_node    = 'START';
-    my $cur_vert_pos = 100
-        ; # Not that useful, it's just not to be ugly if someone wanted to open
-          # the job with spoon (kettle's gui) and work on it graphically
-     # We sort only so that it will be easier to find a transformation in the job if one needed to
-     # edit it. It's also easier to track progress if tables are sorted alphabetically
+    my $prev_node    = 'SQL SCRIPT START';
+    # $cur_vert_pso is not that useful, it's just not to be ugly if someone wanted to open
+    # the job with spoon (kettle's gui) and work on it graphically
+    my $cur_vert_pos = 100;
+
+    # First : the hop from START to SQL SCRIPT START
+    my $tmp_hop = $job_hop;
+    $tmp_hop =~ s/__table_1__/START/;
+    $tmp_hop =~ s/__table_2__/SQL SCRIPT START/;
+    # This is the first hop, so it is unconditionnal
+    $tmp_hop =~ s/<unconditional>N<\/unconditional>/<unconditional>Y<\/unconditional>/;
+    $hops.=$tmp_hop;
+
+    # We sort only so that it will be easier to find a transformation in the job if one needed to
+    # edit it. It's also easier to track progress if tables are sorted alphabetically
 
     foreach my $schema (sort keys %{$objects->{SCHEMAS}})
     {
@@ -606,46 +779,58 @@ sub generate_kettle
 
             # We build the entries with regexp substitutions. The tablename contains the schema
             $tmp_entry =~ s/__table_name__/${schema}_${table}/;
+            $tmp_entry =~ s/__y_loc__/$cur_vert_pos/;
 
-            # Filename to use. We need the full path to the transformations
-            my $filename;
+            # JOBFILEname to use. We need the full path to the transformations
+            # The only difference between normal and incremental job is the filename of the transformation
+            my $JOBFILEname;
+            my $INCJOBFILEname;
             if ($dir =~ /^(\\|\/)/)    # Absolute path
             {
-                $filename = $dir . '/' . $schema . '-' . $table . '.ktr';
+                $JOBFILEname = $dir . '/' . $schema . '-' . $table . '.ktr';
+                $INCJOBFILEname = $dir . '/' . 'incremental-' . $schema . '-' . $table . '.ktr';
             }
             else
             {
-                $filename =
+                $JOBFILEname =
                       $real_dir . '/'
                     . $dir . '/'
                     . $schema . '-'
                     . $table . '.ktr';
+                $INCJOBFILEname =
+                      $real_dir . '/'
+                    . $dir . '/'
+                    . 'incremental-'
+                    . $schema . '-'
+                    . $table . '.ktr';
+            }
+            # Does the incremental transformation exist ?
+            unless (-e $INCJOBFILEname)
+            {
+                $INCJOBFILEname=$JOBFILEname;
             }
 
             # Different for windows and linux, obviously: we change / to \ for windows
             unless (is_windows())
             {
-                $filename =~ s/\//&#47;/g;
+                $JOBFILEname =~ s/\//&#47;/g;
+                $INCJOBFILEname =~ s/\//&#47;/g;
             }
             else
             {
-                $filename =~ s/\//\\/g;
+                $JOBFILEname =~ s/\//\\/g;
+                $INCJOBFILEname =~ s/\//\\/g;
             }
-            $tmp_entry =~ s/__file_name__/$filename/;
-            $tmp_entry =~ s/__y_loc__/$cur_vert_pos/;
+            my $inctmp_entry=$tmp_entry;
+            $tmp_entry =~ s/__file_name__/$JOBFILEname/;
+            $inctmp_entry =~ s/__file_name__/$INCJOBFILEname/;
             $entries .= $tmp_entry;
+            $incentries.=$inctmp_entry;
 
             # We build the hop with the regexp too
             my $tmp_hop = $job_hop;
             $tmp_hop =~ s/__table_1__/$prev_node/;
             $tmp_hop =~ s/__table_2__/${schema}_${table}/;
-            if ($prev_node eq 'START')
-            {
-
-                # Specific to the start node. It has to be unconditional
-                $tmp_hop =~
-                    s/<unconditional>N<\/unconditional>/<unconditional>Y<\/unconditional>/;
-            }
             $hops .= $tmp_hop;
 
             # We increment everything for next loop
@@ -653,13 +838,59 @@ sub generate_kettle
             $cur_vert_pos += 80;                  # To be pretty in spoon
         }
     }
+    # Put the final hop
+    $tmp_hop = $job_hop;
+    $tmp_hop =~ s/__table_1__/$prev_node/;
+    $tmp_hop =~ s/__table_2__/SQL SCRIPT END/;
+    $hops .= $tmp_hop;
 
-    print FILE $job_header;
-    print FILE $entries;
-    print FILE $job_middle;
-    print FILE $hops;
-    print FILE $job_footer;
-    close FILE;
+
+    # Build the casts in the start/stop job entries
+    my $beforescript;
+    my $afterscript;
+    if (defined ($objects->{CASTS}))
+    {
+        foreach my $cast (keys %{$objects->{CASTS}})
+        {
+            $beforescript.= "DROP CAST IF EXISTS &#x28;varchar as $cast&#x29;;\n";
+            $beforescript.= "CREATE CAST &#x28;varchar as $cast&#x29; with inout as implicit;\n";
+            $afterscript.= "DROP CAST &#x28;varchar as $cast&#x29;;\n";
+        }
+    }
+    # Remove/restore triggers to be able to insert without FK checks
+    foreach my $schema (sort keys %{$objects->{SCHEMAS}})
+    {
+        my $refschema = $objects->{SCHEMAS}->{$schema};
+        foreach my $table (sort { lc($a) cmp lc($b) }
+                           keys %{$refschema->{TABLES}})
+        {
+            $beforescript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " DISABLE TRIGGER ALL;\n";
+            $beforescript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ENABLE TRIGGER ALL;\n";
+        }
+    }
+ 
+
+    # This is for the SQL Scripts. We also need to specify the PG connection
+    $job_header =~ s/__SQL_SCRIPT_INIT__/$beforescript/g;
+    $job_header =~ s/__SQL_SCRIPT_END__/$afterscript/g;
+    $job_header =~ s/__postgres_database__/$pd/g;
+    $job_header =~ s/__postgres_host__/$ph/g;
+    $job_header =~ s/__postgres_port__/$pp/g;
+    $job_header =~ s/__postgres_username__/$pu/g;
+    $job_header =~ s/__postgres_password__/$pw/g;
+
+    print JOBFILE $job_header;
+    print JOBFILE $entries;
+    print JOBFILE $job_middle;
+    print JOBFILE $hops;
+    print JOBFILE $job_footer;
+    close JOBFILE;
+    print INCFILE $job_header;
+    print INCFILE $incentries;
+    print INCFILE $job_middle;
+    print INCFILE $hops;
+    print INCFILE $job_footer;
+    close INCFILE;
 
 }
 
@@ -1626,18 +1857,6 @@ sub generate_schema
     {
         print BEFORE "CREATE EXTENSION IF NOT EXISTS citext;\n";
     }
-    if (defined ($objects->{CASTS}))
-    {
-        foreach my $cast (keys %{$objects->{CASTS}})
-        {
-            # We create the cast in the BEFORE. Add a comment, as this is not obvious
-            print BEFORE "-- Create a cast. Used for the kettle job\n";
-            print BEFORE "CREATE CAST (varchar as $cast) with inout as implicit;\n";
-            # We drop the cast in the AFTER
-            print AFTER "-- drop a cast. Used for the kettle job\n";
-            print AFTER "DROP CAST (varchar as $cast);\n";
-        }
-    }
 
     # Ok, we have parsed everything, and definitions are in $objects
     # We will put in the BEFORE file only table and columns definitions.
@@ -2114,7 +2333,9 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "num"    => \$convert_numeric_to_int,
                          "relabel_schemas=s" => \$relabel_schemas,
                          "keep_identifier_case" =>\$keep_identifier_case,
-                         "validate_constraints=s" =>\$validate_constraints,);
+                         "validate_constraints=s" =>\$validate_constraints,
+                         "sort_size=i"            =>\$sort_size,
+                         "use_pk_if_possible=s"            =>\$use_pk_if_possible,);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)
@@ -2757,6 +2978,29 @@ EOF
   <modified_date>2013&#47;04&#47;08 14:08:27.625</modified_date>
     <parameters>
     </parameters>
+  <connection>
+    <name>__postgres_db__</name>
+    <server>__postgres_host__</server>
+    <type>POSTGRESQL</type>
+    <access>Native</access>
+    <database>__postgres_database__</database>
+    <port>__postgres_port__</port>
+    <username>__postgres_username__</username>
+    <password>__postgres_password__</password>
+    <servername/>
+    <data_tablespace/>
+    <index_tablespace/>
+    <attributes>
+      <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
+      <attribute><code>PORT_NUMBER</code><attribute>__postgres_port__</attribute></attribute>
+      <attribute><code>QUOTE_ALL_FIELDS</code><attribute>Y</attribute></attribute>
+      <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
+      <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+      <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
+    </attributes>
+  </connection>
     <slaveservers>
     </slaveservers>
 <job-log-table><connection/>
@@ -2798,6 +3042,38 @@ EOF
       <nr>0</nr>
       <xloc>38</xloc>
       <yloc>73</yloc>
+      </entry>
+    <entry>
+      <name>SQL SCRIPT START</name>
+      <description/>
+      <type>SQL</type>
+      <sql>__SQL_SCRIPT_INIT__</sql>
+      <useVariableSubstitution>F</useVariableSubstitution>
+      <sqlfromfile>F</sqlfromfile>
+      <sqlfilename/>
+      <sendOneStatement>F</sendOneStatement>
+      <connection>__postgres_db__</connection>
+      <parallel>N</parallel>
+      <draw>Y</draw>
+      <nr>0</nr>
+      <xloc>38</xloc>
+      <yloc>140</yloc>
+      </entry>
+    <entry>
+      <name>SQL SCRIPT END</name>
+      <description/>
+      <type>SQL</type>
+      <sql>__SQL_SCRIPT_END__</sql>
+      <useVariableSubstitution>F</useVariableSubstitution>
+      <sqlfromfile>F</sqlfromfile>
+      <sqlfilename/>
+      <sendOneStatement>F</sendOneStatement>
+      <connection>__postgres_db__</connection>
+      <parallel>N</parallel>
+      <draw>Y</draw>
+      <nr>0</nr>
+      <xloc>38</xloc>
+      <yloc>200</yloc>
       </entry>
 EOF
 ####################################################################################
@@ -2862,6 +3138,760 @@ EOF
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
     </hop>
+EOF
+####################################################################################
+
+    $incremental_template= <<EOF;
+<transformation>
+  <info>
+    <name>migration__sqlserver_table_name__</name>                                                                                                                                                                                                        
+    <description/>                                                                                                                                                                                                                           
+    <extended_description/>                                                                                                                                                                                                                  
+    <trans_version/>                                                                                                                                                                                                                         
+    <trans_type>Normal</trans_type>                                                                                                                                                                                                          
+    <trans_status>0</trans_status>                                                                                                                                                                                                           
+    <directory>&#47;</directory>                                                                                                                                                                                                             
+    <parameters>                                                                                                                                                                                                                             
+    </parameters>                                                                                                                                                                                                                            
+    <log>                                                                                                                                                                                                                                    
+<trans-log-table><connection/>                                                                                                                                                                                                               
+<schema/>                                                                                                                                                                                                                                    
+<table/>                                                                                                                                                                                                                                     
+<size_limit_lines/>                                                                                                                                                                                                                          
+<interval/>                                                                                                                                                                                                                                  
+<timeout_days/>                                                                                                                                                                                                                              
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>CHANNEL_ID</id><enabled>Y</enabled><name>CHANNEL_ID</name></field><field><id>TRANSNAME</id><enabled>Y</enabled><name>TRANSNAME</name></field><field><id>STATUS</id><enabled>Y</enabled><name>STATUS</name></field><field><id>LINES_READ</id><enabled>Y</enabled><name>LINES_READ</name><subject/></field><field><id>LINES_WRITTEN</id><enabled>Y</enabled><name>LINES_WRITTEN</name><subject/></field><field><id>LINES_UPDATED</id><enabled>Y</enabled><name>LINES_UPDATED</name><subject/></field><field><id>LINES_INPUT</id><enabled>Y</enabled><name>LINES_INPUT</name><subject/></field><field><id>LINES_OUTPUT</id><enabled>Y</enabled><name>LINES_OUTPUT</name><subject/></field><field><id>LINES_REJECTED</id><enabled>Y</enabled><name>LINES_REJECTED</name><subject/></field><field><id>ERRORS</id><enabled>Y</enabled><name>ERRORS</name></field><field><id>STARTDATE</id><enabled>Y</enabled><name>STARTDATE</name></field><field><id>ENDDATE</id><enabled>Y</enabled><name>ENDDATE</name></field><field><id>LOGDATE</id><enabled>Y</enabled><name>LOGDATE</name></field><field><id>DEPDATE</id><enabled>Y</enabled><name>DEPDATE</name></field><field><id>REPLAYDATE</id><enabled>Y</enabled><name>REPLAYDATE</name></field><field><id>LOG_FIELD</id><enabled>Y</enabled><name>LOG_FIELD</name></field></trans-log-table>                                                     
+<perf-log-table><connection/>                                                                                                                                                                                                                
+<schema/>                                                                                                                                                                                                                                    
+<table/>                                                                                                                                                                                                                                     
+<interval/>                                                                                                                                                                                                                                  
+<timeout_days/>                                                                                                                                                                                                                              
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>SEQ_NR</id><enabled>Y</enabled><name>SEQ_NR</name></field><field><id>LOGDATE</id><enabled>Y</enabled><name>LOGDATE</name></field><field><id>TRANSNAME</id><enabled>Y</enabled><name>TRANSNAME</name></field><field><id>STEPNAME</id><enabled>Y</enabled><name>STEPNAME</name></field><field><id>STEP_COPY</id><enabled>Y</enabled><name>STEP_COPY</name></field><field><id>LINES_READ</id><enabled>Y</enabled><name>LINES_READ</name></field><field><id>LINES_WRITTEN</id><enabled>Y</enabled><name>LINES_WRITTEN</name></field><field><id>LINES_UPDATED</id><enabled>Y</enabled><name>LINES_UPDATED</name></field><field><id>LINES_INPUT</id><enabled>Y</enabled><name>LINES_INPUT</name></field><field><id>LINES_OUTPUT</id><enabled>Y</enabled><name>LINES_OUTPUT</name></field><field><id>LINES_REJECTED</id><enabled>Y</enabled><name>LINES_REJECTED</name></field><field><id>ERRORS</id><enabled>Y</enabled><name>ERRORS</name></field><field><id>INPUT_BUFFER_ROWS</id><enabled>Y</enabled><name>INPUT_BUFFER_ROWS</name></field><field><id>OUTPUT_BUFFER_ROWS</id><enabled>Y</enabled><name>OUTPUT_BUFFER_ROWS</name></field></perf-log-table>
+<channel-log-table><connection/>
+<schema/>
+<table/>
+<timeout_days/>
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>CHANNEL_ID</id><enabled>Y</enabled><name>CHANNEL_ID</name></field><field><id>LOG_DATE</id><enabled>Y</enabled><name>LOG_DATE</name></field><field><id>LOGGING_OBJECT_TYPE</id><enabled>Y</enabled><name>LOGGING_OBJECT_TYPE</name></field><field><id>OBJECT_NAME</id><enabled>Y</enabled><name>OBJECT_NAME</name></field><field><id>OBJECT_COPY</id><enabled>Y</enabled><name>OBJECT_COPY</name></field><field><id>REPOSITORY_DIRECTORY</id><enabled>Y</enabled><name>REPOSITORY_DIRECTORY</name></field><field><id>FILENAME</id><enabled>Y</enabled><name>FILENAME</name></field><field><id>OBJECT_ID</id><enabled>Y</enabled><name>OBJECT_ID</name></field><field><id>OBJECT_REVISION</id><enabled>Y</enabled><name>OBJECT_REVISION</name></field><field><id>PARENT_CHANNEL_ID</id><enabled>Y</enabled><name>PARENT_CHANNEL_ID</name></field><field><id>ROOT_CHANNEL_ID</id><enabled>Y</enabled><name>ROOT_CHANNEL_ID</name></field></channel-log-table>
+<step-log-table><connection/>
+<schema/>
+<table/>
+<timeout_days/>
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>CHANNEL_ID</id><enabled>Y</enabled><name>CHANNEL_ID</name></field><field><id>LOG_DATE</id><enabled>Y</enabled><name>LOG_DATE</name></field><field><id>TRANSNAME</id><enabled>Y</enabled><name>TRANSNAME</name></field><field><id>STEPNAME</id><enabled>Y</enabled><name>STEPNAME</name></field><field><id>STEP_COPY</id><enabled>Y</enabled><name>STEP_COPY</name></field><field><id>LINES_READ</id><enabled>Y</enabled><name>LINES_READ</name></field><field><id>LINES_WRITTEN</id><enabled>Y</enabled><name>LINES_WRITTEN</name></field><field><id>LINES_UPDATED</id><enabled>Y</enabled><name>LINES_UPDATED</name></field><field><id>LINES_INPUT</id><enabled>Y</enabled><name>LINES_INPUT</name></field><field><id>LINES_OUTPUT</id><enabled>Y</enabled><name>LINES_OUTPUT</name></field><field><id>LINES_REJECTED</id><enabled>Y</enabled><name>LINES_REJECTED</name></field><field><id>ERRORS</id><enabled>Y</enabled><name>ERRORS</name></field><field><id>LOG_FIELD</id><enabled>N</enabled><name>LOG_FIELD</name></field></step-log-table>
+    </log>
+    <maxdate>
+      <connection/>
+      <table/>
+      <field/>
+      <offset>0.0</offset>
+      <maxdiff>0.0</maxdiff>
+    </maxdate>
+    <size_rowset>200</size_rowset>
+    <sleep_time_empty>50</sleep_time_empty>
+    <sleep_time_full>50</sleep_time_full>
+    <unique_connections>N</unique_connections>
+    <feedback_shown>Y</feedback_shown>
+    <feedback_size>50000</feedback_size>
+    <using_thread_priorities>Y</using_thread_priorities>
+    <shared_objects_file/>
+    <capture_step_performance>N</capture_step_performance>
+    <step_performance_capturing_delay>1000</step_performance_capturing_delay>
+    <step_performance_capturing_size_limit>100</step_performance_capturing_size_limit>
+    <dependencies>
+    </dependencies>
+    <partitionschemas>
+    </partitionschemas>
+    <slaveservers>
+    </slaveservers>
+    <clusterschemas>
+    </clusterschemas>
+  <created_user>-</created_user>
+  <created_date>2013&#47;02&#47;28 14:04:49.560</created_date>
+  <modified_user>-</modified_user>
+  <modified_date>2014&#47;08&#47;26 15:16:59.019</modified_date>
+  </info>
+  <notepads>
+  </notepads>
+  <connection>
+    <name>__postgres_db__</name>
+    <server>__postgres_host__</server>
+    <type>POSTGRESQL</type>
+    <access>Native</access>
+    <database>__postgres_database__</database>
+    <port>__postgres_port__</port>
+    <username>__postgres_username__</username>
+    <password>__postgres_password__</password>
+    <servername/>
+    <data_tablespace/>
+    <index_tablespace/>
+    <attributes>
+      <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
+      <attribute><code>PORT_NUMBER</code><attribute>__postgres_port__</attribute></attribute>
+      <attribute><code>QUOTE_ALL_FIELDS</code><attribute>Y</attribute></attribute>
+      <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
+      <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
+      <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+    </attributes>
+  </connection>
+  <connection>
+    <name>__sqlserver_db__</name>
+    <server>__sqlserver_host__</server>
+    <type>MSSQL</type>
+    <access>Native</access>
+    <database>__sqlserver_database__</database>
+    <port>__sqlserver_port__</port>
+    <username>__sqlserver_username__</username>
+    <password>__sqlserver_password__</password>
+    <servername/>
+    <data_tablespace/>
+    <index_tablespace/>
+    <attributes>
+      <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
+      <attribute><code>MSSQL_DOUBLE_DECIMAL_SEPARATOR</code><attribute>N</attribute></attribute>
+      <attribute><code>PORT_NUMBER</code><attribute>__sqlserver_port__</attribute></attribute>
+      <attribute><code>QUOTE_ALL_FIELDS</code><attribute>Y</attribute></attribute>
+      <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>N</attribute></attribute>
+      <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+    </attributes>
+  </connection>
+
+  <order>
+  <hop> <from>Table input 2</from><to>User Defined Java Class</to><enabled>Y</enabled> </hop>  <hop> <from>User Defined Java Class</from><to>Sort rows 2</to><enabled>Y</enabled> </hop> <hop> <from>Sort rows 2</from><to>Sorted Merge 2</to><enabled>Y</enabled> </hop> <hop> <from>Table input</from><to>Sort rows</to><enabled>Y</enabled> </hop> <hop> <from>Sort rows</from><to>Sorted Merge</to><enabled>Y</enabled> </hop>  <hop> <from>Sorted Merge</from><to>Merge Rows (diff)</to><enabled>Y</enabled> </hop>  <hop> <from>Sorted Merge 2</from><to>Merge Rows (diff)</to><enabled>Y</enabled> </hop>  <hop> <from>Merge Rows (diff)</from><to>Synchronize after merge</to><enabled>Y</enabled> </hop>  </order>
+  <step>
+    <name>Table input 2</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <connection>__sqlserver_db__</connection>
+    <sql>SELECT __sqlserver_table_cols__ FROM __sqlserver_table_name__ WITH(NOLOCK)</sql>
+    <limit>0</limit>
+    <lookup/>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>Y</variables_active>
+    <lazy_conversion_active>N</lazy_conversion_active>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>122</xloc>
+      <yloc>250</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+
+  <step>
+    <name>User Defined Java Class</name>
+    <type>UserDefinedJavaClass</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>__PARALLELISM__</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+
+    <definitions>
+        <definition>
+        <class_type>TRANSFORM_CLASS</class_type>
+
+        <class_name>Processor</class_name>
+
+        <class_source><![CDATA[import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.Arrays;
+
+String[] fieldNames;
+long numFields;
+Pattern pattern = Pattern.compile("\\00");
+RowMetaInterface inputRowMeta;
+
+public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws KettleException
+{
+
+    // First, get a row from the default input hop
+        //
+        Object[] r = getRow();
+
+    // If the row object is null, we are done processing.
+        //
+        if (r == null) {
+                setOutputDone();
+                return false;
+        }
+
+        // Let's look up parameters only once for performance reason.
+        // Let's also get field types and names
+        if (first) {
+        inputRowMeta = getInputRowMeta();
+        fieldNames = inputRowMeta.getFieldNames();
+        numFields = fieldNames.length;
+        int fieldnum;
+        for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMetaInterface.TYPE_STRING) {
+                fieldNames[fieldnum]="-1";
+            }
+        }
+            first=false;
+        }
+
+    Object[] outputRow = createOutputRow(r, data.outputRowMeta.size());
+//    Object[] outputRow = RowDataUtil.createResizedCopy(r, data.outputRowMeta.size());
+    int fieldnum;
+    for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+        if (!(fieldNames[fieldnum].equals("-1"))){
+            String inputStr = get(Fields.In,fieldNames[fieldnum]).getString(r);
+            if (inputStr != null) { // else null pointer execption in regexp
+                Matcher matcher = pattern.matcher(inputStr);
+                String newfield = matcher.replaceAll("");
+                get(Fields.Out,fieldNames[fieldnum]).setValue(outputRow,newfield);
+            }
+        }
+    }
+
+    // putRow will send the row on to the default output hop.
+        //
+    putRow(data.outputRowMeta, outputRow);
+
+        return true;
+}]]></class_source>
+        </definition>
+    </definitions>
+   <fields>
+    </fields><clear_result_fields>N</clear_result_fields>
+<info_steps></info_steps><target_steps></target_steps><usage_parameters></usage_parameters>     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>280</xloc>
+      <yloc>332</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+  <step>
+    <name>Table input</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <connection>__postgres_db__</connection>
+    <sql>SELECT * FROM __postgres_schema_name__.__postgres_table_name__</sql>
+    <limit>0</limit>
+    <lookup/>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>N</variables_active>
+    <lazy_conversion_active>N</lazy_conversion_active>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>122</xloc>
+      <yloc>150</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step>
+    <name>Sort rows</name>
+    <type>SortRows</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>__PARALLELISM__</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+      <directory>%%java.io.tmpdir%%</directory>
+      <prefix>out</prefix>
+      <sort_size>__sort_size__</sort_size>
+      <free_memory></free_memory>
+      <compress>N</compress>
+      <compress_variable/>
+      <unique_rows>N</unique_rows>
+    <fields>
+__SORT_KEYS_PG__
+    </fields>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>351</xloc>
+      <yloc>161</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step>
+    <name>Sort rows 2</name>
+    <type>SortRows</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>__PARALLELISM__</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+      <directory>%%java.io.tmpdir%%</directory>
+      <prefix>out</prefix>
+      <sort_size>__sort_size__</sort_size>
+      <free_memory></free_memory>
+      <compress>N</compress>
+      <compress_variable/>
+      <unique_rows>N</unique_rows>
+    <fields>
+__SORT_KEYS_SQLSERVER__
+    </fields>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>352</xloc>
+      <yloc>253</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+  <step>
+    <name>Sorted Merge</name>
+    <type>SortedMerge</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <fields>
+__SORT_KEYS_PG__
+      </fields>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>428</xloc>
+      <yloc>161</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+  <step>
+    <name>Sorted Merge 2</name>
+    <type>SortedMerge</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <fields>
+__SORT_KEYS_SQLSERVER__
+      </fields>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>429</xloc>
+      <yloc>245</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step>
+    <name>Synchronize after merge</name>
+    <type>SynchronizeAfterMerge</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>__PARALLELISM__</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <connection>__postgres_db__</connection>
+    <commit>100</commit> 
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_field/>
+    <use_batch>N</use_batch>
+    <perform_lookup>N</perform_lookup>
+    <operation_order_field>__changed__</operation_order_field>
+    <order_insert>new</order_insert>
+    <order_update>changed</order_update>
+    <order_delete>deleted</order_delete>
+    <lookup>
+      <schema>__postgres_schema_name__</schema>
+      <table>__postgres_table_name__</table>
+      __KEYS_SYNC__
+      __VALUES_SYNC__
+    </lookup>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>700</xloc>
+      <yloc>212</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step>
+    <name>Merge Rows (diff)</name>
+    <type>MergeRows</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <keys>
+      __KEYS_MERGE__
+    </keys>
+    <values>
+      __VALUES_MERGE__
+    </values>
+<flag_field>__changed__</flag_field>
+<reference>Sorted Merge</reference>
+<compare>Sorted Merge 2</compare>
+    <compare>
+    </compare>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>506</xloc>
+      <yloc>212</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step_error_handling>
+  </step_error_handling>
+   <slave-step-copy-partition-distribution>
+</slave-step-copy-partition-distribution>
+   <slave_transformation>N</slave_transformation>
+</transformation>
+EOF
+####################################################################################
+
+    $incremental_template_sortable_pk= <<EOF;
+<transformation>
+  <info>
+    <name>migration__sqlserver_table_name__</name>                                                                                                                                                                                                        
+    <description/>                                                                                                                                                                                                                           
+    <extended_description/>                                                                                                                                                                                                                  
+    <trans_version/>                                                                                                                                                                                                                         
+    <trans_type>Normal</trans_type>                                                                                                                                                                                                          
+    <trans_status>0</trans_status>                                                                                                                                                                                                           
+    <directory>&#47;</directory>                                                                                                                                                                                                             
+    <parameters>                                                                                                                                                                                                                             
+    </parameters>                                                                                                                                                                                                                            
+    <log>                                                                                                                                                                                                                                    
+<trans-log-table><connection/>                                                                                                                                                                                                               
+<schema/>                                                                                                                                                                                                                                    
+<table/>                                                                                                                                                                                                                                     
+<size_limit_lines/>                                                                                                                                                                                                                          
+<interval/>                                                                                                                                                                                                                                  
+<timeout_days/>                                                                                                                                                                                                                              
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>CHANNEL_ID</id><enabled>Y</enabled><name>CHANNEL_ID</name></field><field><id>TRANSNAME</id><enabled>Y</enabled><name>TRANSNAME</name></field><field><id>STATUS</id><enabled>Y</enabled><name>STATUS</name></field><field><id>LINES_READ</id><enabled>Y</enabled><name>LINES_READ</name><subject/></field><field><id>LINES_WRITTEN</id><enabled>Y</enabled><name>LINES_WRITTEN</name><subject/></field><field><id>LINES_UPDATED</id><enabled>Y</enabled><name>LINES_UPDATED</name><subject/></field><field><id>LINES_INPUT</id><enabled>Y</enabled><name>LINES_INPUT</name><subject/></field><field><id>LINES_OUTPUT</id><enabled>Y</enabled><name>LINES_OUTPUT</name><subject/></field><field><id>LINES_REJECTED</id><enabled>Y</enabled><name>LINES_REJECTED</name><subject/></field><field><id>ERRORS</id><enabled>Y</enabled><name>ERRORS</name></field><field><id>STARTDATE</id><enabled>Y</enabled><name>STARTDATE</name></field><field><id>ENDDATE</id><enabled>Y</enabled><name>ENDDATE</name></field><field><id>LOGDATE</id><enabled>Y</enabled><name>LOGDATE</name></field><field><id>DEPDATE</id><enabled>Y</enabled><name>DEPDATE</name></field><field><id>REPLAYDATE</id><enabled>Y</enabled><name>REPLAYDATE</name></field><field><id>LOG_FIELD</id><enabled>Y</enabled><name>LOG_FIELD</name></field></trans-log-table>                                                     
+<perf-log-table><connection/>                                                                                                                                                                                                                
+<schema/>                                                                                                                                                                                                                                    
+<table/>                                                                                                                                                                                                                                     
+<interval/>                                                                                                                                                                                                                                  
+<timeout_days/>                                                                                                                                                                                                                              
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>SEQ_NR</id><enabled>Y</enabled><name>SEQ_NR</name></field><field><id>LOGDATE</id><enabled>Y</enabled><name>LOGDATE</name></field><field><id>TRANSNAME</id><enabled>Y</enabled><name>TRANSNAME</name></field><field><id>STEPNAME</id><enabled>Y</enabled><name>STEPNAME</name></field><field><id>STEP_COPY</id><enabled>Y</enabled><name>STEP_COPY</name></field><field><id>LINES_READ</id><enabled>Y</enabled><name>LINES_READ</name></field><field><id>LINES_WRITTEN</id><enabled>Y</enabled><name>LINES_WRITTEN</name></field><field><id>LINES_UPDATED</id><enabled>Y</enabled><name>LINES_UPDATED</name></field><field><id>LINES_INPUT</id><enabled>Y</enabled><name>LINES_INPUT</name></field><field><id>LINES_OUTPUT</id><enabled>Y</enabled><name>LINES_OUTPUT</name></field><field><id>LINES_REJECTED</id><enabled>Y</enabled><name>LINES_REJECTED</name></field><field><id>ERRORS</id><enabled>Y</enabled><name>ERRORS</name></field><field><id>INPUT_BUFFER_ROWS</id><enabled>Y</enabled><name>INPUT_BUFFER_ROWS</name></field><field><id>OUTPUT_BUFFER_ROWS</id><enabled>Y</enabled><name>OUTPUT_BUFFER_ROWS</name></field></perf-log-table>
+<channel-log-table><connection/>
+<schema/>
+<table/>
+<timeout_days/>
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>CHANNEL_ID</id><enabled>Y</enabled><name>CHANNEL_ID</name></field><field><id>LOG_DATE</id><enabled>Y</enabled><name>LOG_DATE</name></field><field><id>LOGGING_OBJECT_TYPE</id><enabled>Y</enabled><name>LOGGING_OBJECT_TYPE</name></field><field><id>OBJECT_NAME</id><enabled>Y</enabled><name>OBJECT_NAME</name></field><field><id>OBJECT_COPY</id><enabled>Y</enabled><name>OBJECT_COPY</name></field><field><id>REPOSITORY_DIRECTORY</id><enabled>Y</enabled><name>REPOSITORY_DIRECTORY</name></field><field><id>FILENAME</id><enabled>Y</enabled><name>FILENAME</name></field><field><id>OBJECT_ID</id><enabled>Y</enabled><name>OBJECT_ID</name></field><field><id>OBJECT_REVISION</id><enabled>Y</enabled><name>OBJECT_REVISION</name></field><field><id>PARENT_CHANNEL_ID</id><enabled>Y</enabled><name>PARENT_CHANNEL_ID</name></field><field><id>ROOT_CHANNEL_ID</id><enabled>Y</enabled><name>ROOT_CHANNEL_ID</name></field></channel-log-table>
+<step-log-table><connection/>
+<schema/>
+<table/>
+<timeout_days/>
+<field><id>ID_BATCH</id><enabled>Y</enabled><name>ID_BATCH</name></field><field><id>CHANNEL_ID</id><enabled>Y</enabled><name>CHANNEL_ID</name></field><field><id>LOG_DATE</id><enabled>Y</enabled><name>LOG_DATE</name></field><field><id>TRANSNAME</id><enabled>Y</enabled><name>TRANSNAME</name></field><field><id>STEPNAME</id><enabled>Y</enabled><name>STEPNAME</name></field><field><id>STEP_COPY</id><enabled>Y</enabled><name>STEP_COPY</name></field><field><id>LINES_READ</id><enabled>Y</enabled><name>LINES_READ</name></field><field><id>LINES_WRITTEN</id><enabled>Y</enabled><name>LINES_WRITTEN</name></field><field><id>LINES_UPDATED</id><enabled>Y</enabled><name>LINES_UPDATED</name></field><field><id>LINES_INPUT</id><enabled>Y</enabled><name>LINES_INPUT</name></field><field><id>LINES_OUTPUT</id><enabled>Y</enabled><name>LINES_OUTPUT</name></field><field><id>LINES_REJECTED</id><enabled>Y</enabled><name>LINES_REJECTED</name></field><field><id>ERRORS</id><enabled>Y</enabled><name>ERRORS</name></field><field><id>LOG_FIELD</id><enabled>N</enabled><name>LOG_FIELD</name></field></step-log-table>
+    </log>
+    <maxdate>
+      <connection/>
+      <table/>
+      <field/>
+      <offset>0.0</offset>
+      <maxdiff>0.0</maxdiff>
+    </maxdate>
+    <size_rowset>200</size_rowset>
+    <sleep_time_empty>50</sleep_time_empty>
+    <sleep_time_full>50</sleep_time_full>
+    <unique_connections>N</unique_connections>
+    <feedback_shown>Y</feedback_shown>
+    <feedback_size>50000</feedback_size>
+    <using_thread_priorities>Y</using_thread_priorities>
+    <shared_objects_file/>
+    <capture_step_performance>N</capture_step_performance>
+    <step_performance_capturing_delay>1000</step_performance_capturing_delay>
+    <step_performance_capturing_size_limit>100</step_performance_capturing_size_limit>
+    <dependencies>
+    </dependencies>
+    <partitionschemas>
+    </partitionschemas>
+    <slaveservers>
+    </slaveservers>
+    <clusterschemas>
+    </clusterschemas>
+  <created_user>-</created_user>
+  <created_date>2013&#47;02&#47;28 14:04:49.560</created_date>
+  <modified_user>-</modified_user>
+  <modified_date>2014&#47;08&#47;26 15:16:59.019</modified_date>
+  </info>
+  <notepads>
+  </notepads>
+  <connection>
+    <name>__postgres_db__</name>
+    <server>__postgres_host__</server>
+    <type>POSTGRESQL</type>
+    <access>Native</access>
+    <database>__postgres_database__</database>
+    <port>__postgres_port__</port>
+    <username>__postgres_username__</username>
+    <password>__postgres_password__</password>
+    <servername/>
+    <data_tablespace/>
+    <index_tablespace/>
+    <attributes>
+      <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
+      <attribute><code>PORT_NUMBER</code><attribute>__postgres_port__</attribute></attribute>
+      <attribute><code>QUOTE_ALL_FIELDS</code><attribute>Y</attribute></attribute>
+      <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
+      <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
+      <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+    </attributes>
+  </connection>
+  <connection>
+    <name>__sqlserver_db__</name>
+    <server>__sqlserver_host__</server>
+    <type>MSSQL</type>
+    <access>Native</access>
+    <database>__sqlserver_database__</database>
+    <port>__sqlserver_port__</port>
+    <username>__sqlserver_username__</username>
+    <password>__sqlserver_password__</password>
+    <servername/>
+    <data_tablespace/>
+    <index_tablespace/>
+    <attributes>
+      <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
+      <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
+      <attribute><code>MSSQL_DOUBLE_DECIMAL_SEPARATOR</code><attribute>N</attribute></attribute>
+      <attribute><code>PORT_NUMBER</code><attribute>__sqlserver_port__</attribute></attribute>
+      <attribute><code>QUOTE_ALL_FIELDS</code><attribute>Y</attribute></attribute>
+      <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>N</attribute></attribute>
+      <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+    </attributes>
+  </connection>
+
+  <order>
+  <hop> <from>Table input 2</from><to>User Defined Java Class</to><enabled>Y</enabled> </hop>  <hop> <from>User Defined Java Class</from><to>Merge Rows (diff)</to><enabled>Y</enabled> </hop> <hop> <from>Table input</from><to>Merge Rows (diff)</to><enabled>Y</enabled> </hop> <hop> <from>Merge Rows (diff)</from><to>Synchronize after merge</to><enabled>Y</enabled> </hop>  </order>
+  <step>
+    <name>Table input 2</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <connection>__sqlserver_db__</connection>
+    <sql>SELECT __sqlserver_table_cols__ FROM __sqlserver_table_name__ WITH(NOLOCK) ORDER BY __sqlserver_pk_condition__</sql>
+    <limit>0</limit>
+    <lookup/>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>Y</variables_active>
+    <lazy_conversion_active>N</lazy_conversion_active>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>122</xloc>
+      <yloc>250</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+
+  <step>
+    <name>User Defined Java Class</name>
+    <type>UserDefinedJavaClass</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+
+    <definitions>
+        <definition>
+        <class_type>TRANSFORM_CLASS</class_type>
+
+        <class_name>Processor</class_name>
+
+        <class_source><![CDATA[import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.Arrays;
+
+String[] fieldNames;
+long numFields;
+Pattern pattern = Pattern.compile("\\00");
+RowMetaInterface inputRowMeta;
+
+public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws KettleException
+{
+
+    // First, get a row from the default input hop
+        //
+        Object[] r = getRow();
+
+    // If the row object is null, we are done processing.
+        //
+        if (r == null) {
+                setOutputDone();
+                return false;
+        }
+
+        // Let's look up parameters only once for performance reason.
+        // Let's also get field types and names
+        if (first) {
+        inputRowMeta = getInputRowMeta();
+        fieldNames = inputRowMeta.getFieldNames();
+        numFields = fieldNames.length;
+        int fieldnum;
+        for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+            if(inputRowMeta.getValueMeta(fieldnum).getType()!= ValueMetaInterface.TYPE_STRING) {
+                fieldNames[fieldnum]="-1";
+            }
+        }
+            first=false;
+        }
+
+    Object[] outputRow = createOutputRow(r, data.outputRowMeta.size());
+//    Object[] outputRow = RowDataUtil.createResizedCopy(r, data.outputRowMeta.size());
+    int fieldnum;
+    for (fieldnum = 0; fieldnum < numFields; fieldnum++) {
+        if (!(fieldNames[fieldnum].equals("-1"))){
+            String inputStr = get(Fields.In,fieldNames[fieldnum]).getString(r);
+            if (inputStr != null) { // else null pointer execption in regexp
+                Matcher matcher = pattern.matcher(inputStr);
+                String newfield = matcher.replaceAll("");
+                get(Fields.Out,fieldNames[fieldnum]).setValue(outputRow,newfield);
+            }
+        }
+    }
+
+    // putRow will send the row on to the default output hop.
+        //
+    putRow(data.outputRowMeta, outputRow);
+
+        return true;
+}]]></class_source>
+        </definition>
+    </definitions>
+   <fields>
+    </fields><clear_result_fields>N</clear_result_fields>
+<info_steps></info_steps><target_steps></target_steps><usage_parameters></usage_parameters>     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>280</xloc>
+      <yloc>332</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+  <step>
+    <name>Table input</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <connection>__postgres_db__</connection>
+    <sql>SELECT * FROM __postgres_schema_name__.__postgres_table_name__ ORDER BY __pg_pk_condition__</sql>
+    <limit>0</limit>
+    <lookup/>
+    <execute_each_row>N</execute_each_row>
+    <variables_active>N</variables_active>
+    <lazy_conversion_active>N</lazy_conversion_active>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>122</xloc>
+      <yloc>150</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step>
+    <name>Synchronize after merge</name>
+    <type>SynchronizeAfterMerge</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>__PARALLELISM__</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <connection>__postgres_db__</connection>
+    <commit>100</commit> 
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_field/>
+    <use_batch>N</use_batch>
+    <perform_lookup>N</perform_lookup>
+    <operation_order_field>__changed__</operation_order_field>
+    <order_insert>new</order_insert>
+    <order_update>changed</order_update>
+    <order_delete>deleted</order_delete>
+    <lookup>
+      <schema>__postgres_schema_name__</schema>
+      <table>__postgres_table_name__</table>
+      __KEYS_SYNC__
+      __VALUES_SYNC__
+    </lookup>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>700</xloc>
+      <yloc>212</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step>
+    <name>Merge Rows (diff)</name>
+    <type>MergeRows</type>
+    <description/>
+    <distribute>Y</distribute>
+    <copies>1</copies>
+         <partitioning>
+           <method>none</method>
+           <schema_name/>
+           </partitioning>
+    <keys>
+      __KEYS_MERGE__
+    </keys>
+    <values>
+      __VALUES_MERGE__
+    </values>
+<flag_field>__changed__</flag_field>
+<reference>Table input</reference>
+<compare>User Defined Java Class</compare>
+    <compare>
+    </compare>
+     <cluster_schema/>
+ <remotesteps>   <input>   </input>   <output>   </output> </remotesteps>    <GUI>
+      <xloc>506</xloc>
+      <yloc>212</yloc>
+      <draw>Y</draw>
+      </GUI>
+    </step>
+
+  <step_error_handling>
+  </step_error_handling>
+   <slave-step-copy-partition-distribution>
+</slave-step-copy-partition-distribution>
+   <slave_transformation>N</slave_transformation>
+</transformation>
 EOF
 ####################################################################################
 
