@@ -177,6 +177,7 @@ my %types = ('int'           => 'int',
              'binary'        => 'bytea',
              'varbinary'     => 'bytea',
              'money'         => 'numeric',
+             'smallmoney'    => 'numeric',
              'uniqueidentifier' => 'uuid',);
 
 # Types with no qualifier, and no point in putting one
