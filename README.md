@@ -6,7 +6,7 @@ This is a migration tool to convert a Microsoft SQL Server Database into a Postg
 It is written in Perl.
 
 
-It does two things:
+It does three things:
 
   * convert a SQL Server schema to a PostgreSQL schema
   * produce a Pentaho Data Integrator (Kettle) job to migrate 
