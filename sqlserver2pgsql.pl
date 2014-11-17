@@ -849,7 +849,7 @@ sub generate_kettle
                            keys %{$refschema->{TABLES}})
         {
             $beforescript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " DISABLE TRIGGER ALL;\n";
-            $beforescript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ENABLE TRIGGER ALL;\n";
+            $afterscript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ENABLE TRIGGER ALL;\n";
         }
     }
  
