@@ -559,40 +559,23 @@ sub generate_kettle
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
             my $origschema=$refschema->{TABLES}->{$table}->{origschema};
-            # First, does this table have LOBs ? The template depends on this
+            # First, does this table have LOBs ? The template depends on this and is this
+            # table having an int PK ?
             my $newtemplate;
-            if ($refschema->{TABLES}->{$table}->{haslobs})
+            if (  $refschema->{TABLES}->{$table}->{haslobs}
+              and defined($refschema->{TABLES}->{$table}->{PK}->{COLS})
+              and scalar(@{$refschema->{TABLES}->{$table}->{PK}->{COLS}}) == 1
+              and ($refschema->{TABLES}->{$table}->{COLS}->{($refschema->{TABLES}->{$table}->{PK}->{COLS}->[0])}->{TYPE} =~ /int$/)
+               )
             {
-                $newtemplate = $template_lob;
-
-                # Is the PK int and on only one column ?
-                # If yes, we can use several threads in kettle to read this table to
-                # improve performance
                 my $wherefilter;
-                if (defined($refschema->{TABLES}->{$table}->{PK}->{COLS})
-                    and
-                    scalar(@{$refschema->{TABLES}->{$table}->{PK}->{COLS}})
-                    == 1
-                    and ($refschema->{TABLES}->{$table}->{COLS}
-                        ->{($refschema->{TABLES}->{$table}->{PK}->{COLS}->[0])
-                        }->{TYPE} =~ /int$/))
-                {
-                    $wherefilter =
-                          'WHERE '
-                        . $refschema->{TABLES}->{$table}->{PK}->{COLS}->[0]
-                        . '% ${Internal.Step.Unique.Count} = ${Internal.Step.Unique.Number}';
-                    $newtemplate =~
-                        s/__sqlserver_where_filter__/$wherefilter/;
-                }
-                else
-
-                    # No way to do this optimization. Use standard template
-                {
-                    $wherefilter='';
-                    $newtemplate =~ s/__sqlserver_where_filter__//;
-                    $newtemplate =~ s/__sqlserver_copies__/1/g;
-                }
-                $newtemplate =~ s/__sqlserver_where_filter__/$wherefilter/;
+                $newtemplate = $template_lob;
+                $wherefilter =
+                      'WHERE '
+                   . $refschema->{TABLES}->{$table}->{PK}->{COLS}->[0]
+                   . '% ${Internal.Step.Unique.Count} = ${Internal.Step.Unique.Number}';
+                $newtemplate =~
+                    s/__sqlserver_where_filter__/$wherefilter/;
             }
             else
             {
