@@ -896,6 +896,19 @@ sub generate_kettle
             ; # Remove executesql… it's a bit weird in the SQL Server's dump
               # If we are not in comment, we look for /*
          # If we are in comment, we look for */, and we remove everything until */
+        if ($in_comment)
+        {
+          if ($line =~ /\*\//)
+          {
+            $in_comment = 0;
+            $line =~ s/.*\*\///;  # Remove everything before the uncomment
+          }
+          else
+          {
+            $line = "\n";
+          }
+        }
+
         if (not $in_comment)
         {
 
@@ -907,23 +920,6 @@ sub generate_kettle
             {
                 $in_comment = 1;
                 $line =~ s/\/\*.*//;    # Remove everything after the comment
-            }
-        }
-        else
-        {
-            # We do the reverse: keep only what is not commented
-            $line =~ s/\*\/(.*?)\/\*/$1/g;
-
-            # Is there an uncomment left ?
-            if ($line =~ /\*\//)
-            {
-                $in_comment = 0;
-                $line =~ s/.*\*\///;  # Remove everything before the uncomment
-            }
-            else
-            {
-                # There is no uncomment. The line should be empty
-                $line = "\n";
             }
         }
         return $line;
