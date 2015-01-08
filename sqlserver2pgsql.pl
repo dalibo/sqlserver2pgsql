@@ -2275,16 +2275,24 @@ sub resolve_name_conflicts
                 }
                 else
                 {
+                    my $i = 0;
+                    my $postfix = "2pgi";
+                    while (defined($known_names{format_identifier("${idx}2pgi${i}")}))
+                    {
+                        $i++;
+                    }
+                    $postfix .= $i;
+
                     # We have to rename :/
-                    # Postfix with a 2pg
+                    # Postfix with a 2pgi followed by number
                     # We have to update the name in the $refschema hash
                     $refschema->{TABLES}->{$table}->{INDEXES}
-                        ->{"$idx" . "2pgi"} =
+                        ->{"${idx}${postfix}"} =
                         $refschema->{TABLES}->{$table}->{INDEXES}->{$idx};
                     delete $refschema->{TABLES}->{$table}->{INDEXES}->{$idx};
                     print STDERR
-                        "Warning: I had to rename index $table.$idx to ${idx}2pgi because of naming conflicts in source schema $schema\n";
-                    $known_names{format_identifier($idx . "2pgi")} = 1;
+                        "Warning: I had to rename index $table.$idx to ${idx}${postfix} because of naming conflicts in source schema $schema\n";
+                    $known_names{format_identifier("${idx}${postfix}")} = 1;
                 }
             }
         }
