@@ -1796,6 +1796,11 @@ EOF
         {
             next;
         }
+        # Ignore EXEC sys.sp_db_vardecimal_storage_format, enabling for vardecimal storage format was only needed in SQL Server 2005 and means nothing for PG.
+        elsif ($line =~ /^EXEC sys\.sp_db_vardecimal_storage_format/)
+        {
+            next;
+        }
 
         # Still on views: there are empty lines, and C-style comments
         elsif ($line =~ /^\s*$/)
