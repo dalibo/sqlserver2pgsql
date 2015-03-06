@@ -2364,12 +2364,12 @@ if ($validate_constraints !~ '^(yes|after|no)$')
 if ($kettle
     and (   not $sd
          or not $sh
-         or not $sp
+         or not defined($sp) # password can be empty, it just has to be defined)
          or not $su
          or not $sw
          or not $pd
          or not $ph
-         or not $pp
+         or not defined ($pp) # password can be empty, it just has to be defined
          or not $pu
          or not $pw))
 {
