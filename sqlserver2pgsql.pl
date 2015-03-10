@@ -2364,14 +2364,16 @@ if ($validate_constraints !~ '^(yes|after|no)$')
 if ($kettle
     and (   not $sd
          or not $sh
-         or not defined($sp) # password can be empty, it just has to be defined)
+         or not $sp
          or not $su
-         or not $sw
+         or not defined($sw) # password can be empty, it just has to be defined
          or not $pd
          or not $ph
-         or not defined ($pp) # password can be empty, it just has to be defined
+         or not $pp
          or not $pu
-         or not $pw))
+         or not defined($pw) # password can be empty, it just has to be defined
+	)
+)
 {
     usage();
     print
