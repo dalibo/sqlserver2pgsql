@@ -3,7 +3,7 @@ sqlserver2pgsql
 
 This is a migration tool to convert a Microsoft SQL Server Database into a PostgreSQL database, as automatically as possible.
 
-It is written in Perl.
+It is written in Perl and has received a fair amount of testing.
 
 
 It does three things:
@@ -18,13 +18,13 @@ It does three things:
 Notes, warnings:
 ==========================
 This tool will never be completely finished. For now, it works with all the SQL Server
-databases I had to migrate. If it doesn't work with yours, feel free to modify this,
+databases I and anyone asking for help in an issue had to migrate. If it doesn't work with yours, feel free to modify this,
 send me patches, or the SQL dump from your SQL Server Database, with the
-problem you are facing. I'll try to improve the code, but I need this SQL dump.
+problem you are facing. I'll try to improve the code, but I need this SQL dump. Create an issue in github !
 
 It won't migrate PL procedures, the languages are too different.
 
-I usually only test this script under Linux. It should work on Windows, as I had to do it once
+I usually only test this script under Linux. It works on Windows, as I had to do it once
 with Windows, and on any Unix system.
 
 
