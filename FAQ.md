@@ -3,7 +3,7 @@ FAQ:
 Why didn't you do everything in the Perl script ? I don't want to use Kettle.
 ----------------------------------
 
-Because I have once installed a Perl DBD driver for MS SQL's server, and I don't want to ever do it again... nor 
+Because I have once installed a Perl DBD driver for Microsoft SQL server, and I don't want to ever do it again... nor 
 force you to do it :) You can either do it using ODBC, or using Sybase's driver. In both case, it will take you 
 quite a while, and you'll suffer with large objects.
 
