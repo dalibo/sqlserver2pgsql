@@ -14,6 +14,7 @@ It does three things:
   * produce an incremental version of this job to migrate what has changed in the database from the previous run. This is created
     when the migration job is also created.
 
+Please drop me a word (on github) if you use this tool, feedback is great :)
 
 Notes, warnings:
 ==========================
