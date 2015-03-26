@@ -44,7 +44,7 @@ Ok, I have installed Kettle and Java, I have sqlserver2pgsql.pl, what do I do no
 You'll need several things:
 
   * The connection parameters to the SQL Server database:
-    IP address, port, username, password, database name
+    IP address, port, username, password, database name, instance name if not default
   * Access to an empty PostgreSQL database (where you want your migrated data)
   * A text file containing a SQL dump of the SQL Server database
 
@@ -134,6 +134,7 @@ You'll also need to specify the connection parameters. They will be stored insid
 cleartext, so don't make this directory public):
 -sd : sql server database
 -sh : sql server host
+-si : sql server host instance
 -sp : sql server port (usually 1433)
 -su : sql server username
 -sw : sql server password

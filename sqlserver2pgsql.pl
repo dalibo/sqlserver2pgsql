@@ -529,6 +529,7 @@ sub usage
     print "for connecting to both databases:\n";
     print "-sd: sqlserver database\n";
     print "-sh: sqlserver host\n";
+    print "-si: sqlserver host instance\n";
     print "-sp: sqlserver port\n";
     print "-su: sqlserver username\n";
     print "-sw: sqlserver password\n";

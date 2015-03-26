@@ -10,6 +10,7 @@ kettle directory=/tmp/kettle # Comment this line if you don't want a kettle scri
 # These are ignored as long as kettle is not set
 sql server database=foo
 sql server host=foo_host
+sql server host instance=my_instance # You can omit this if you use the default instance
 sql server port=1433
 sql server username=foo_user
 sql server password=foo_password
