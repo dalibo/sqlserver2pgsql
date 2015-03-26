@@ -28,7 +28,7 @@ use strict;
 my $objects;
 
 # These are global variables, from configuration file or command line arguments
-our ($sd, $sh, $sp, $su, $sw, $pd, $ph, $pp, $pu, $pw);    # Connection args
+our ($sd, $sh, $si, $sp, $su, $sw, $pd, $ph, $pp, $pu, $pw);    # Connection args
 our $conf_file;
 our $filename;    # Filename passed as arg
 our $case_insensitive; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
@@ -59,7 +59,7 @@ my ($job_entry, $job_hop)
 my @view_list; # array to keep view ordering from sql server's dump (a view may depend on another view)
 
 # Opens the configuration file
-# Sets $sd $sh $sp $su $sw $pd $ph $pp $pu $pw when they are not set in the command line already
+# Sets $sd $sh $si $sp $su $sw $pd $ph $pp $pu $pw when they are not set in the command line already
 # Also gets kettle parameters...
 sub parse_conf_file
 {
@@ -68,6 +68,7 @@ sub parse_conf_file
     # This is also used as the list of accepted parameters in the configuration file
     my %parameters = ('sql server database'      => 'sd',
                       'sql server host'          => 'sh',
+                      'sql server host instance' => 'si',
                       'sql server port'          => 'sp',
                       'sql server username'      => 'su',
                       'sql server password'      => 'sw',
@@ -174,7 +175,7 @@ my %types = ('int'              => 'int',
              'smalldatetime'    => 'timestamp',
              'time'             => 'time',
              'timestamp'        => 'timestamp',
-	     'datetimeoffset'   => 'timestamp with time zone',
+             'datetimeoffset'   => 'timestamp with time zone',
              'image'            => 'bytea',
              'binary'           => 'bytea',
              'varbinary'        => 'bytea',
@@ -617,11 +618,17 @@ sub generate_kettle
             my $pgtable=format_identifier($table);
             my $pgschema=format_identifier($targetschema);
 
+            my $sqlinstancename = '';
+            if (length $si) {
+                $sqlinstancename = $si;
+            }
+
             # Substitute every connection placeholder with the real value. We do this for both templates
             $newtemplate =~ s/__sqlserver_database__/$sd/g;
             $newtemplate =~ s/__sqlserver_database__/$sd/g;
             $newtemplate =~ s/__sqlserver_host__/$sh/g;
             $newtemplate =~ s/__sqlserver_port__/$sp/g;
+            $newtemplate =~ s/__sqlserver_instance__/$sqlinstancename/g;
             $newtemplate =~ s/__sqlserver_username__/$su/g;
             $newtemplate =~ s/__sqlserver_password__/$sw/g;
             $newtemplate =~ s/__postgres_database__/$pd/g;
@@ -643,6 +650,7 @@ sub generate_kettle
             $newincrementaltemplate =~ s/__sqlserver_username__/$su/g;
             $newincrementaltemplate =~ s/__sqlserver_password__/$sw/g;
             $newincrementaltemplate =~ s/__postgres_database__/$pd/g;
+            $newincrementaltemplate =~ s/__sqlserver_instance__/$sqlinstancename/g;
             $newincrementaltemplate =~ s/__postgres_host__/$ph/g;
             $newincrementaltemplate =~ s/__postgres_port__/$pp/g;
             $newincrementaltemplate =~ s/__postgres_username__/$pu/g;
@@ -2314,6 +2322,7 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "conf=s" => \$conf_file,
                          "sd=s"   => \$sd,
                          "sh=s"   => \$sh,
+                         "si=s"   => \$si,
                          "sp=s"   => \$sp,
                          "su=s"   => \$su,
                          "sw=s"   => \$sw,
@@ -2494,6 +2503,7 @@ BEGIN
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -2769,6 +2779,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -3244,6 +3255,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -3670,6 +3682,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
