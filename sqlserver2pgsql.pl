@@ -453,7 +453,7 @@ sub next_col_pos
 # Test if we are on windows. We will have to convert / to \ in the XML files
 sub is_windows
 {
-    if ($^O =~ /win/i)
+    if ($^O =~ /MSWin32/)
     {
         return 1;
     }
