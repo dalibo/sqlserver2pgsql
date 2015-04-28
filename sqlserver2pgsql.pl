@@ -2537,6 +2537,7 @@ BEGIN
       <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
+      <attribute><code>PRESERVE_RESERVED_WORD_CASE</code><attribute>Y</attribute></attribute>
     </attributes>
   </connection>
   <order>
@@ -2813,6 +2814,7 @@ EOF
       <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
+      <attribute><code>PRESERVE_RESERVED_WORD_CASE</code><attribute>Y</attribute></attribute>
     </attributes>
   </connection>
   <order>
@@ -3009,6 +3011,7 @@ EOF
       <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
+      <attribute><code>PRESERVE_RESERVED_WORD_CASE</code><attribute>Y</attribute></attribute>
     </attributes>
   </connection>
     <slaveservers>
