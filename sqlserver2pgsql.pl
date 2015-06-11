@@ -487,7 +487,7 @@ sub check_kettle_properties
     open FILE, $file or kettle_die($file);
     while (<FILE>)
     {
-        next unless (/KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL\s*=\s*Y/);
+        next unless (/^KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL=Y$/);
         $ok = 1;
     }
     close FILE;
