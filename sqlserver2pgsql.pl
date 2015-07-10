@@ -1071,8 +1071,11 @@ sub parse_dump
             TABLE: while (my $line = read_and_clean($file))
             {
                 # Here is a col definition.
+		# We ignore ROWGUIDCOL as it has no meaning in PostgreSQL and cannot be emulated 
+		# (it makes it possible to do a select xxx WHERE $ROWGUID, without knowing the column name, typical microsoft stuff :( )
+		# To make matters even worse, they seem to systematically add a space after it :)
                 if ($line =~
-                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(,)?/
+                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (NOT NULL|NULL)(,)?/
                     )
                 {
                     #Deported into a function because we can also meet alter table add columns on their own
@@ -1270,7 +1273,7 @@ EOF
             my $sql = $1 . ' ' . $schemaname . '.' . $3 . ' ' . $4 . "\n";
             while (my $line_cont = read_and_clean($file))
             {
-                if ($line_cont =~ /^\s*'\s*|^GO$/
+                if ($line_cont =~ /^\s*'\s*$|^GO$/
                     ) # We may have a quote if the view is 'quoted', or a real sql query
                 {
                     # The view definition is complete.
@@ -1629,6 +1632,10 @@ EOF
                 {
                     $constraint->{ON_UPD_CASC} = 1;
                 }
+		elsif ($fk =~ /^NOT FOR REPLICATION$/)
+		{
+			next; # We don't care for this, it has no meaning for PostgreSQL
+		}
                 else
                 {
                     die "Cannot parse $fk $., in a FK. This is a bug";
