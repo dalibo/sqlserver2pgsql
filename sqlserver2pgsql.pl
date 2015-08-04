@@ -90,6 +90,7 @@ sub parse_conf_file
                       'validate constraints'     => 'validate_constraints',
                       'sort size'                => 'sort_size',
                       'use pk if possible'       => 'use_pk_if_possible',
+                      
                      );
 
     # Open the conf file or die
@@ -182,7 +183,9 @@ my %types = ('int'              => 'int',
              'varbinary'        => 'bytea',
              'money'            => 'numeric',
              'smallmoney'       => 'numeric',
-             'uniqueidentifier' => 'uuid',);
+             'uniqueidentifier' => 'uuid',
+             'xml'		=> 'xml',
+	     'geography'	=> 'point');
 
 # Types with no qualifier, and no point in putting one
 my %unqual = ('bytea' => 1);
