@@ -182,7 +182,8 @@ my %types = ('int'              => 'int',
              'varbinary'        => 'bytea',
              'money'            => 'numeric',
              'smallmoney'       => 'numeric',
-             'uniqueidentifier' => 'uuid',);
+             'uniqueidentifier' => 'uuid',
+	     'xml'		=> 'xml',);
 
 # Types with no qualifier, and no point in putting one
 my %unqual = ('bytea' => 1);
