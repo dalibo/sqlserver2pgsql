@@ -1798,6 +1798,20 @@ EOF
         # Ignore CREATE DATABASE: we hope that we are given a single database as an option. It is multiline.
         # Ignore everything until next GO
         # Ignore ALTER DATABASE for the same reason. The given parameters have no meaning in PG anyway
+	# Except for SET ARITHABORT OFF, for which we print a warning because it probably means the database contents are weird (10/0 = null)
+	elsif ($line =~
+	       /^ALTER DATABASE.* SET ARITHABORT OFF/)
+	{
+	    print STDERR "WARNING: the source database is set as ARITHABORT OFF.\n";
+	    print STDERR "         It means that for SQL Server, 10/0 = NULL.\n";
+	    print STDERR "         You'll probably have problems porting that to PostgreSQL.\n";
+	    while ($line !~ /^GO$/)
+	    {
+		$line =read_and_clean($file);
+	    }
+            # We read everything in the CREATE DATABASE. Back to work !
+	    next;
+	}
         # Same for tests about full text search.
         elsif ($line =~
                /^(CREATE|ALTER) DATABASE|^IF \(1 = FULLTEXTSERVICEPROPERTY/)
