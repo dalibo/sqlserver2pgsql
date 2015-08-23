@@ -45,6 +45,7 @@ our $validate_constraints='yes';
 our $parallelism=8;
 our $sort_size=10000;
 our $use_pk_if_possible=0;
+our $requires_postgis=0;
 
 # These three variables are loaded in the BEGIN block at the end of this file (they are very big
 my $template; 
@@ -245,6 +246,18 @@ sub convert_type
         # Special case. This is an internal type, and should seldom be used in production. Converted to varchar(128)
         $rettype='varchar(128)';
     }
+    
+    # We special case also the geometry and geography data types
+    elsif ( $sqlstype =~ /^geography$|^geometry$/i )
+    {
+	# These require that the destination database contains PostGIS
+	unless ($requires_postgis)
+	{
+            print STDERR "WARNING: $sqlstype detected. You will need PostGIS (http://postgis.net/).\nThe generated script will perform the CREATE EXTENSION, but please install PostGIS on this server\n";
+            $requires_postgis=1;
+	}
+	$rettype=lc($sqlstype);
+    }
     else
     {
         print "Types: ", Dumper(\%types);
@@ -295,6 +308,7 @@ sub convert_type
             $rettype=$rettype.'[]';
         }
     }
+
     # Add this type to casts to perform if necessary
     add_cast($rettype);
 
@@ -1875,6 +1889,13 @@ sub generate_schema
     if ($case_insensitive)
     {
         print BEFORE "CREATE EXTENSION IF NOT EXISTS citext;\n";
+    }
+    
+    # Do we require PostGIS ?
+    if ($requires_postgis)
+    {
+        print BEFORE "CREATE EXTENSION IF NOT EXISTS postgis;\n";
+        print BEFORE "CREATE EXTENSION IF NOT EXISTS postgis_topology;\n";
     }
 
     # Ok, we have parsed everything, and definitions are in $objects
