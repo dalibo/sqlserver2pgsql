@@ -258,6 +258,12 @@ sub convert_type
 	}
 	$rettype=lc($sqlstype);
     }
+    elsif ($sqlstype eq 'sql_variant')
+    {
+	# There is no equivalent in PostgreSQL (and I think that's a good thing :) )
+    	print STDERR "WARNING: $sqlstype detected (in $schemaname.$tablename.$colname).\nThis is a 'not typed' field in SQL Server. There is no equivalent in PostgreSQL.\nThis is converted to text, but you'll have rework to do on your client code\n";
+	$rettype='text';
+    }
     else
     {
         print "Types: ", Dumper(\%types);
