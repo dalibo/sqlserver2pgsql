@@ -253,10 +253,16 @@ sub convert_type
 	# These require that the destination database contains PostGIS
 	unless ($requires_postgis)
 	{
-            print STDERR "WARNING: $sqlstype detected. You will need PostGIS (http://postgis.net/).\nThe generated script will perform the CREATE EXTENSION, but please install PostGIS on this server\n";
+            print STDERR "WARNING: $sqlstype detected  (in $schemaname.$tablename.$colname).\n  You will need PostGIS (http://postgis.net/).\n  The generated script will perform the CREATE EXTENSION, but please install PostGIS on this server\n";
             $requires_postgis=1;
 	}
 	$rettype=lc($sqlstype);
+    }
+    elsif ($sqlstype eq 'sql_variant')
+    {
+	# There is no equivalent in PostgreSQL (and I think that's a good thing :) )
+    	print STDERR "WARNING: $sqlstype detected (in $schemaname.$tablename.$colname).\n  This is a 'not typed' field in SQL Server. There is no equivalent in PostgreSQL.\n  This is converted to text, but you'll have rework to do on your client code\n";
+	$rettype='text';
     }
     else
     {
