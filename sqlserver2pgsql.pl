@@ -399,6 +399,68 @@ sub convert_transactsql_code
 	return $code;
 }
 
+# This function does its best to convert MS's weird default values syntax into something logical
+sub store_default_value
+{
+    my ($schema,$table,$col,$value,$line)=@_;
+    if ($value =~ /^\(?(\d+(\.\d+)?)\)?$/) # Value is  numeric
+    {
+	    $value = $1; # Get rid of parenthesis
+	    if ($objects->{SCHEMAS}->{relabel_schemas($schema)}->{TABLES}->{$table}->{COLS}->{$col}->{TYPE} eq 'boolean')
+	    {
+		# Ok, it IS a boolean, and we have received a number
+		if ($value eq '0')
+		{
+		    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE} = 'false';
+		}
+		elsif ($value eq '1')
+		{
+		    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE} = 'true';
+		}
+		else
+		{
+		    # We should not get here: we have a numeric which isn't 0 or 1, and is supposed to be a boolean
+		    die "Got an unexpected boolean : $value, for line $line\n";
+		}
+	    }
+	    else
+	    {
+		$objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+		    = $value;
+	    }
+	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+		= 0;
+
+    }
+    elsif ($value =~ /^NULL$/) # A NULL value
+    {
+	    # NULL WITHOUT quotes around it !
+	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+		= 'NULL';
+	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+		= 0;
+    }
+    elsif ($value =~ /^N?'(.*)'$/) # There is sometimes an N before a string.
+    {
+	    $value = $1; # Get rid of junk
+	    # Default text value, text, between commas
+	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+		= "'$1'";
+	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+		= 0;
+    }
+    else
+    {
+	#This must be a function call...
+            $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+                = convert_transactsql_code($value);
+            $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+                = 1;
+
+    }
+
+}
+
 
 # This gives the next column position for a table
 # It is used when we add a new column
@@ -1002,7 +1064,7 @@ sub add_column_to_table
             ->{$colname}->{DEFAULT}->{VALUE} =
               "nextval('"
             . format_identifier(relabel_schemas(${schemaname})) . '.'
-            . ${seqname} . "')";
+            . format_identifier(${seqname}) . "')";
         $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{COLS}
             ->{$colname}->{DEFAULT}->{UNSURE} = 0;
 
@@ -1090,17 +1152,22 @@ sub parse_dump
 		# (it makes it possible to do a select xxx WHERE $ROWGUID, without knowing the column name, typical microsoft stuff :( )
 		# To make matters even worse, they seem to systematically add a space after it :)
                 if ($line =~
-                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (NOT NULL|NULL)(,)?/
+                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
                     )
                 {
                     #Deported into a function because we can also meet alter table add columns on their own
                     my $colname       = $1;
                     my $coltypeschema = $2;
                     my $coltype       = $3;
-                    my $colqual    = $4;
-                    my $isidentity = $5;
-                    my $colisnull  = $6;
+                    my $colqual        =$4;
+                    my $isidentity     =$5;
+                    my $colisnull      =$6;
+                    my $default        =$7;
                     add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
+	            if (defined $default)
+		    {
+			    store_default_value($schemaname,$tablename,$colname,$default,$line);
+		    }
                 }
 
 
@@ -1458,7 +1525,7 @@ EOF
             add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
             if (defined $default)
             {
-                $objects->{SCHEMAS}->{relabel_schemas($schemaname)}->{TABLES}->{$tablename}->{COLS}->{$colname}->{DEFAULT}->{VALUE} = $default;
+		    store_default_value($schemaname,$tablename,$colname,$default,$line);
             }
         }
 
@@ -1535,44 +1602,16 @@ EOF
 	# Sometimes there is a second pair of parenthesis. I don't even want to know why...
 	# Bit just need a little bit of work to be converted to 'true'/'false'
         elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?((?:-)?\d+(?:\.\d+)?)\)?\) FOR \[(.*)\]/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((\(?(?:-)?\d+(?:\.\d+)?\))?\) FOR \[(.*)\]/
             )
         {
-	    if ($objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{TYPE} eq 'boolean')
-	    {
-	        # Ok, it IS a boolean, and we have received a number
-                if ($3 eq '0')
-                {
-                    $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'false';
-                }
-                elsif ($3 eq '1')
-                {
-                    $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE} = 'true';
-                }
-                else
-                {
-                    # We should not get here: we have a numeric which isn't 0 or 1, and is supposed to be a boolean
-                    die "Got an unexpected boolean : $3, for line $line\n";
-                }
-	    }
-            else
-            {
-                $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
-                    = $3;
-            }
-            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
-                = 0;
-
+		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
         elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \('(.*)'\) FOR \[(.*)\]/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(('.*')\) FOR \[(.*)\]/
             )
         {
-            # Default text value, text, between commas
-            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
-                = "'$3'";
-            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
-                = 0;
+		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
 
         # Yes, we also get default NULL (what for ? :) ), and sometimes with a different case
@@ -1580,12 +1619,7 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(((?i)NULL)\) FOR \[(.*)\]/
             )
         {
-            # NULL WITHOUT quotes around it !
-            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
-                = 'NULL';
-            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
-                = 0;
-
+		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
 
         # And there are also constraints with functions and other strange code in them. Put them as unsure
@@ -1593,10 +1627,7 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?(.*)\)?\) FOR \[(.*)\]/
             )
         {
-            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{VALUE}
-                = convert_transactsql_code($3);
-            $objects->{SCHEMAS}->{relabel_schemas($1)}->{TABLES}->{$2}->{COLS}->{$4}->{DEFAULT}->{UNSURE}
-                = 1;
+		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
 
         # FK constraint. It's multi line, we have to look for references, and what to do on update, delete, etc (I have only seen delete cascade for now)
