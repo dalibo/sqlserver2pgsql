@@ -35,3 +35,4 @@ with citext, but if you can avoid it, do it. You'll have casting between citext 
 bad plans, etc.
 * Some columns may take into account trailing spaces, some won't (it must be ansi_padding). Anyway, this 
 doesn't exist either in PG. So more constraints will fail.
+* PLpgSQL is very different from T-SQL, so you'll have trouble with stored procedures. It may be worth to give https://bitbucket.org/openscg/pgtsql a try …
