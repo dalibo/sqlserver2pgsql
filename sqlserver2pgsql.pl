@@ -1303,7 +1303,7 @@ EOF
         ################################################################
         # From HERE, these SQL commands are not linked to a create table
         ################################################################
-        elsif ($line =~ /CREATE SCHEMA \[(.*)\] AUTHORIZATION \[.*\]/)
+        elsif ($line =~ /^CREATE SCHEMA \[(.*)\]/)
         {
             $objects->{SCHEMAS}->{relabel_schemas($1)} = undef
                 ; # Nothing to add here, we create the schema, and put undef in it for now
@@ -1512,6 +1512,16 @@ EOF
                 }
             }
         }
+	elsif ($line =~ /^CREATE SPATIAL INDEX/)
+	{
+		my $def=$line;
+		while (my $idx = read_and_clean($file))
+		{
+			$def.=$idx;
+		}
+		print STDERR "This spatial index won't be migrated:\n$def\n";
+		
+	}
 
         # Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
         # PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
@@ -1744,7 +1754,7 @@ EOF
                 or die
                 "Cannot find a name for this extended property: $sqlproperty";
             my $propertyname = $1;
-            if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1)$/)
+            if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1|Display Name|Description|Example Values|Source System|Table Description|Table Type|ETL Rules|Display Folder|SCD  Type|Source Datatype)$/)
             {
                 # We don't dump these. They are graphical descriptions of the GUI
                 next;
@@ -1807,7 +1817,6 @@ EOF
                     # Never met one for now. Die and ask to send me an example
                     die "Schema comment : <$comment> not understood. Please send a bug report\n";
                 }
-
             }
             else
             {
@@ -1840,6 +1849,11 @@ EOF
             next;
         }
 
+        elsif ($line =~ /^ALTER (ROLE|USER)/)
+        {
+            next;
+        }
+
         # Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
         elsif ($line =~ /^IF NOT EXISTS/)
         {
@@ -1863,6 +1877,29 @@ EOF
             # We read everything in the CREATE DATABASE. Back to work !
 	    next;
 	}
+	# Sometimes, when there is a ALTER DATABASE SET ARITHABORT OFF, there are SET ARITHABORT ON. Just ignore them
+	elsif ($line =~ /^SET ARITHABORT ON/)
+	{
+		next;
+	}
+	# Sometimes we meet this: SET CONCAT_NULL_YIELDS_NULL ON. That's the normal behaviour for a SQL database. Just ignore
+	elsif ($line =~ /^SET CONCAT_NULL_YIELDS_NULL ON/)
+	{
+		next;
+	}
+	# Same more or less
+	elsif ($line =~ /^SET ANSI_WARNINGS ON/)
+	{
+		next;
+	}
+	# What the hell does this do in a dump ???
+	elsif ($line =~ /^SET NUMERIC_ROUNDABORT OFF/)
+	{
+		next;
+	}
+
+
+
         # Same for tests about full text search.
         elsif ($line =~
                /^(CREATE|ALTER) DATABASE|^IF \(1 = FULLTEXTSERVICEPROPERTY/)
