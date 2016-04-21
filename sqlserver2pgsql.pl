@@ -1690,6 +1690,10 @@ EOF
                 {
                     $constraint->{ON_DEL_CASC} = 1;
                 }
+                elsif ($fk =~ /^ON DELETE SET NULL\s*$/)
+                {
+                    $constraint->{ON_DEL_SET_NULL} = 1;
+                }
                 elsif ($fk =~ /^ON UPDATE CASCADE\s*$/)
                 {
                     $constraint->{ON_UPD_CASC} = 1;
@@ -2167,6 +2171,11 @@ sub generate_schema
                         and $constraint->{ON_DEL_CASC})
                     {
                         $consdef .= " ON DELETE CASCADE";
+                    }
+                    if (defined $constraint->{ON_DEL_SET_NULL}
+                        and $constraint->{ON_DEL_SET_NULL})
+                    {
+                        $consdef .= " ON DELETE SET NULL";
                     }
                     if (defined $constraint->{ON_UPD_CASC}
                         and $constraint->{ON_UPD_CASC})
