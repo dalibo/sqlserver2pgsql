@@ -1902,8 +1902,6 @@ EOF
 		next;
 	}
 
-
-
         # Same for tests about full text search.
         elsif ($line =~
                /^(CREATE|ALTER) DATABASE|^IF \(1 = FULLTEXTSERVICEPROPERTY/)
@@ -1915,6 +1913,17 @@ EOF
 
             # We read everything in the CREATE DATABASE. Back to work !
             next;
+        }
+
+        # Ignore CREATE and ALTER statements for full text search objects, such as CATALOG, INDEX or STOPLIST.
+        elsif ($line =~ /^(CREATE|ALTER) FULLTEXT/)
+        {
+          while ($line !~ /^GO$/)
+          {
+            $line =read_and_clean($file);
+          }
+          
+          next;
         }
 
         # Ignore EXEC dbo.sp_executesql, for now only seen for a create view. Views sql command aren't executed directly, don't know why
