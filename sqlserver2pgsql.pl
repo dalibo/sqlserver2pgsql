@@ -404,7 +404,7 @@ sub convert_transactsql_code
 	$code =~ s/[\[\]]/\"/gi;
 	$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
 	$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
-	$code =~ s/datepart\s*\(\s*(.*)\s*\,\s*(.*)\s*\)/date_part('$1', $2)/gi;
+	$code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
 	return $code;
 }
 
