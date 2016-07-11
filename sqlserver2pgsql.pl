@@ -327,14 +327,10 @@ sub convert_type
 sub sql_convert_column
 {
     my ($colname,$coltype)=@_;
-    my %functions = ( 'uuid' => 'lower' );
+    my %functions = ( 'uuid' => 'lower({colname})', 'date' => 'convert(varchar, {colname}, 120)' );
     if (defined ($functions{$coltype}))
     {
-        return $functions{$coltype} . '([' . $colname . '])';
-    }
-    elsif ($coltype eq 'date')
-    {
-        return 'convert(varchar, [' . $colname . '], 120)';
+		return $functions{$coltype} =~ s/\{colname\}/[$colname]/r;
     }
     else
     {
