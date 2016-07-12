@@ -324,17 +324,36 @@ sub convert_type
 # This function is used for selects from SQL Server, in kettle. It adds a function call
 # if there is a conversion to be done.
 # uniqueidentifier is upper case in SQL Server, whereas uuid is lower case in PG
+# date is converted to varchar in the YYYY-MM-DD format
 sub sql_convert_column
 {
     my ($colname,$coltype)=@_;
     my %functions = ( 'uuid' => 'lower({colname})', 'date' => 'convert(varchar, {colname}, 120)' );
     if (defined ($functions{$coltype}))
     {
-		return $functions{$coltype} =~ s/\{colname\}/[$colname]/r;
+        return $functions{$coltype} =~ s/\{colname\}/[$colname]/r;
     }
     else
     {
         return "[$colname]";
+    }
+}
+
+# This function is used for selects from PostgreSQL, in kettle. It adds a function call
+# if there is a conversion to be done.
+# uuid is converted to varchar and forced to lower case
+# date is converted to varchar in the YYYY-MM-DD format
+sub postgres_convert_column
+{
+    my ($colname,$coltype)=@_;
+    my %functions = ( 'uuid' => 'lower(cast({colname} as varchar))', 'date' => 'to_char({colname}, \'YYYY-MM-DD\')' );
+    if (defined ($functions{$coltype}))
+    {
+        return $functions{$coltype} =~ s/\{colname\}/"$colname"/r;
+    }
+    else
+    {
+        return "\"$colname\"";
     }
 }
 
@@ -690,6 +709,7 @@ sub generate_kettle
 
             # Build the column list of the table to put into the SQL Server query
             my @colsdef;
+            my @pgcolsdef;
             foreach my $col (
                 sort {
                     $refschema->{TABLES}->{$table}->{COLS}->{$a}->{POS}
@@ -699,9 +719,12 @@ sub generate_kettle
 
             {
                 my $coldef = sql_convert_column($col,$refschema->{TABLES}->{$table}->{COLS}->{$col}->{TYPE}) . " AS " . format_identifier($col);
+                my $pgcoldef = postgres_convert_column($col,$refschema->{TABLES}->{$table}->{COLS}->{$col}->{TYPE}) . " AS " . format_identifier($col);
                 push @colsdef,($coldef);
+                push @pgcolsdef,($pgcoldef);
             }
             my $colsdef=join(',',@colsdef);
+            my $pgcolsdef=join(',',@pgcolsdef);
 
             my $pgtable=format_identifier($table);
             my $pgschema=format_identifier($targetschema);
@@ -747,6 +770,7 @@ sub generate_kettle
             $newincrementaltemplate =~ s/__sqlserver_table_cols__/$colsdef/g;
             $newincrementaltemplate =~ s/__postgres_table_name__/$pgtable/g;
             $newincrementaltemplate =~ s/__postgres_schema_name__/$pgschema/g;
+            $newincrementaltemplate =~ s/__postgres_table_cols__/$pgcolsdef/g;
             $newincrementaltemplate =~ s/__PARALLELISM__/$parallelism/g;
             $newincrementaltemplate =~ s/__sort_size__/$sort_size/g;
 
@@ -3535,7 +3559,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
            <schema_name/>
            </partitioning>
     <connection>__postgres_db__</connection>
-    <sql>SELECT * FROM __postgres_schema_name__.__postgres_table_name__</sql>
+    <sql>SELECT __postgres_table_cols__ FROM __postgres_schema_name__.__postgres_table_name__</sql>
     <limit>0</limit>
     <lookup/>
     <execute_each_row>N</execute_each_row>
@@ -3962,7 +3986,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
            <schema_name/>
            </partitioning>
     <connection>__postgres_db__</connection>
-    <sql>SELECT * FROM __postgres_schema_name__.__postgres_table_name__ ORDER BY __pg_pk_condition__</sql>
+    <sql>SELECT __postgres_table_cols__ FROM __postgres_schema_name__.__postgres_table_name__ ORDER BY __pg_pk_condition__</sql>
     <limit>0</limit>
     <lookup/>
     <execute_each_row>N</execute_each_row>
