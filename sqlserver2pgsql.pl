@@ -140,7 +140,7 @@ sub convert_numeric_to_int
 }
 
 # This is a list of the types that require a cast to be imported in kettle
-my %types_to_cast = ('uuid'  => '1',);
+my %types_to_cast = ('uuid'  => '1','date'  => '1');
 
 # This sub adds a cast (if not defined already) if
 # - we generate for kettle
@@ -150,7 +150,7 @@ sub add_cast
     my ($type)=@_;
     if (defined $types_to_cast{$type})
     {
-        $objects->{CASTS}->{uuid}=1;
+        $objects->{CASTS}->{$type}=1;
     }
 }
 
@@ -327,10 +327,10 @@ sub convert_type
 sub sql_convert_column
 {
     my ($colname,$coltype)=@_;
-    my %functions = ( 'uuid' => 'lower');
+    my %functions = ( 'uuid' => 'lower({colname})', 'date' => 'convert(varchar, {colname}, 120)' );
     if (defined ($functions{$coltype}))
     {
-        return $functions{$coltype} . '([' . $colname . '])';
+		return $functions{$coltype} =~ s/\{colname\}/[$colname]/r;
     }
     else
     {
