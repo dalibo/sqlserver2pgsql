@@ -1480,7 +1480,7 @@ EOF
                 }
                 else
                 {
-                    die "Cannot understand line: $typeline";
+                    die "Cannot understand $typeline\n";
                 }
             }
         }
