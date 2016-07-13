@@ -1062,7 +1062,12 @@ sub add_column_to_table
     }
      if ($colqual)
     {
-        if ($colqual eq '(max)')
+        if ($coltype eq 'xml')
+        {
+            $colqual = undef
+                ; # ignoring sql server xml schema since its not supported in pg 
+        }
+        elsif ($colqual eq '(max)')
         {
             $colqual = undef
                 ; # max in sql server is the same as putting no colqual in pg
@@ -1884,6 +1889,17 @@ EOF
         {
             next;
         }
+        
+        # Ignore xml schema collections since they are not supported in pg
+        elsif ($line =~ /^CREATE XML SCHEMA COLLECTION/)
+        {
+            next;
+        }
+
+        elsif ($line =~ /^ALTER XML SCHEMA COLLECTION/)
+        {
+            next;
+        }        
 
         # Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
         elsif ($line =~ /^IF NOT EXISTS/)
