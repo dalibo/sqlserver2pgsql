@@ -1444,7 +1444,7 @@ EOF
             my $newtype;
             TYPE: while (my $typeline= read_and_clean($file))
             {
-                if ($typeline =~ /^\t\[(.*)\] \[(.*)\](?: \((\d+(?:,\d+)?)\))?(?: (?:NOT )?NULL),?$/)
+                if ($typeline =~ /^\t\[(.*)\] \[(.*)\](?:\s*?\((\d+(?:,\d+)?)\))?(?:\s+?(?:NOT\s+?)?NULL),?$/)
                 {
                     # This is another column for this type
                     $colname=$1;
@@ -1480,7 +1480,7 @@ EOF
                 }
                 else
                 {
-                    die "Cannot understand $type. This is a bug";
+                    die "Cannot understand line: $typeline";
                 }
             }
         }
