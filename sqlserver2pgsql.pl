@@ -323,12 +323,16 @@ sub convert_type
 
 # This function is used for selects from SQL Server, in kettle. It adds a function call
 # if there is a conversion to be done.
-# uniqueidentifier is upper case in SQL Server, whereas uuid is lower case in PG
+# uuid is upper case in SQL Server, whereas uuid is lower case in PG
 # date is converted to varchar in the YYYY-MM-DD format
+# timestamp with time zone is converted to varchar in the YYYY-MM-DD HH:MI:SS.MMM (24h) with time zone format
 sub sql_convert_column
 {
     my ($colname,$coltype)=@_;
-    my %functions = ( 'uuid' => 'lower({colname})', 'date' => 'convert(varchar, {colname}, 120)' );
+    my %functions = (
+        'uuid' => 'lower({colname})',
+        'date' => 'convert(varchar(50), {colname}, 120)',
+        'timestamp with time zone(7)' => 'convert(varchar(50), {colname}, 121)');
     if (defined ($functions{$coltype}))
     {
         return $functions{$coltype} =~ s/\{colname\}/[$colname]/r;
@@ -343,10 +347,14 @@ sub sql_convert_column
 # if there is a conversion to be done.
 # uuid is converted to varchar and forced to lower case
 # date is converted to varchar in the YYYY-MM-DD format
+# timestamp with time zone is converted to varchar in the YYYY-MM-DD HH:MI:SS.US+00 format (UTC)
 sub postgres_convert_column
 {
     my ($colname,$coltype)=@_;
-    my %functions = ( 'uuid' => 'lower(cast({colname} as varchar))', 'date' => 'to_char({colname}, \'YYYY-MM-DD\')' );
+    my %functions = (
+        'uuid' => 'lower(cast({colname} as varchar))',
+        'date' => 'to_char({colname}, \'YYYY-MM-DD\')',
+        'timestamp with time zone(7)' => 'to_char({colname} AT TIME ZONE \'UTC\', \'YYYY-MM-DD HH:MI:SS.US+00\')');
     if (defined ($functions{$coltype}))
     {
         return $functions{$coltype} =~ s/\{colname\}/"$colname"/r;
