@@ -1062,7 +1062,12 @@ sub add_column_to_table
     }
      if ($colqual)
     {
-        if ($colqual eq '(max)')
+        if ($coltype eq 'xml')
+        {
+            $colqual = undef
+                ; # ignoring sql server xml schema since its not supported in pg 
+        }
+        elsif ($colqual eq '(max)')
         {
             $colqual = undef
                 ; # max in sql server is the same as putting no colqual in pg
@@ -1185,7 +1190,7 @@ sub parse_dump
 		# (it makes it possible to do a select xxx WHERE $ROWGUID, without knowing the column name, typical microsoft stuff :( )
 		# To make matters even worse, they seem to systematically add a space after it :)
                 if ($line =~
-                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
+                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
                     )
                 {
                     #Deported into a function because we can also meet alter table add columns on their own
@@ -1439,7 +1444,7 @@ EOF
             my $newtype;
             TYPE: while (my $typeline= read_and_clean($file))
             {
-                if ($typeline =~ /^\t\[(.*)\] \[(.*)\](?: \((\d+(?:,\d+)?)\))?(?: (?:NOT )?NULL),?$/)
+                if ($typeline =~ /^\t\[(.*)\] \[(.*)\](?:\s*?\((\d+(?:,\d+)?)\))?(?:\s+?(?:NOT\s+?)?NULL),?$/)
                 {
                     # This is another column for this type
                     $colname=$1;
@@ -1475,7 +1480,7 @@ EOF
                 }
                 else
                 {
-                    die "Cannot understand $type. This is a bug";
+                    die "Cannot understand $typeline\n";
                 }
             }
         }
@@ -1884,6 +1889,17 @@ EOF
         {
             next;
         }
+        
+        # Ignore xml schema collections since they are not supported in pg
+        elsif ($line =~ /^CREATE XML SCHEMA COLLECTION/)
+        {
+            next;
+        }
+
+        elsif ($line =~ /^ALTER XML SCHEMA COLLECTION/)
+        {
+            next;
+        }        
 
         # Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
         elsif ($line =~ /^IF NOT EXISTS/)
