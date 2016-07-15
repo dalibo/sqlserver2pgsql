@@ -323,7 +323,7 @@ sub convert_type
 
 # This function is used for selects from SQL Server, in kettle. It adds a function call
 # if there is a conversion to be done.
-# uuid is upper case in SQL Server, whereas uuid is lower case in PG
+# uniqueidentifier is upper case in SQL Server, whereas uuid is lower case in PG
 # date is converted to varchar in the YYYY-MM-DD format
 # timestamp with time zone is converted to varchar in the YYYY-MM-DD HH:MI:SS.MMM (24h) with time zone format
 sub sql_convert_column
