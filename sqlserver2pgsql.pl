@@ -328,16 +328,18 @@ sub convert_type
 # uniqueidentifier is upper case in SQL Server, whereas uuid is lower case in PG
 # date is converted to varchar in the YYYY-MM-DD format
 # timestamp with time zone is converted to varchar in the YYYY-MM-DD HH:MI:SS.MMM (24h) with time zone format
+# xml columns with empty values will be converted to null since the empty values won't be accepted in PG (datalength of an empty xml column is 5)
 sub sql_convert_column
 {
     my ($colname,$coltype)=@_;
     my %functions = (
         'uuid' => 'lower({colname})',
         'date' => 'convert(varchar(50), {colname}, 120)',
-        'timestamp with time zone(7)' => 'convert(varchar(50), {colname}, 121)');
+        'timestamp with time zone(7)' => 'convert(varchar(50), {colname}, 121)',
+        'xml' => 'case when datalength({colname}) > 5 then {colname} else null end');
     if (defined ($functions{$coltype}))
     {
-        return $functions{$coltype} =~ s/\{colname\}/[$colname]/r;
+        return $functions{$coltype} =~ s/\{colname\}/[$colname]/gr;
     }
     else
     {
@@ -976,8 +978,8 @@ sub generate_kettle
             }
             elsif ($objects->{CASTS}->{$cast} eq "S")
             {
-                $beforescript.= "update pg_cast set castcontext='i' where castsource='character varying'::regtype and casttarget='$cast'::regtype;\n";
-                $afterscript.= "update pg_cast set castcontext='e' where castsource='character varying'::regtype and casttarget='$cast'::regtype;\n";
+                $beforescript.= "UPDATE pg_cast SET castcontext='i' WHERE castsource='character varying'::regtype AND casttarget='$cast'::regtype;\n";
+                $afterscript.= "UPDATE pg_cast SET castcontext='e' WHERE castsource='character varying'::regtype AND casttarget='$cast'::regtype;\n";
             }
         }
     }
