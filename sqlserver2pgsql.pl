@@ -358,7 +358,7 @@ sub postgres_convert_column
     my %functions = (
         'uuid' => 'lower(cast({colname} as varchar))',
         'date' => 'to_char({colname}, \'YYYY-MM-DD\')',
-        'timestamp with time zone(7)' => 'to_char({colname} AT TIME ZONE \'UTC\', \'YYYY-MM-DD HH:MI:SS.US+00\')');
+        'timestamp with time zone' => 'to_char({colname} AT TIME ZONE \'UTC\', \'YYYY-MM-DD HH:MI:SS.US+00\')');
     if (defined ($functions{$coltype}))
     {
         return $functions{$coltype} =~ s/\{colname\}/"$colname"/r;
