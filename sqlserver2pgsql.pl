@@ -140,7 +140,9 @@ sub convert_numeric_to_int
 }
 
 # This is a list of the types that require a cast to be imported in kettle
-my %types_to_cast = ('uuid'  => '1','date'  => '1');
+# C = using CREATE CAST
+# S = updating system catalog 
+my %types_to_cast = ('uuid'  => 'C','date'  => 'C','timestamp with time zone' => 'C','xml'  => 'S');
 
 # This sub adds a cast (if not defined already) if
 # - we generate for kettle
@@ -150,7 +152,7 @@ sub add_cast
     my ($type)=@_;
     if (defined $types_to_cast{$type})
     {
-        $objects->{CASTS}->{$type}=1;
+        $objects->{CASTS}->{$type}=$types_to_cast{$type};
     }
 }
 
@@ -184,10 +186,10 @@ my %types = ('int'              => 'int',
              'money'            => 'numeric',
              'smallmoney'       => 'numeric',
              'uniqueidentifier' => 'uuid',
-	     'xml'		=> 'xml',);
+             'xml'              => 'xml',);
 
 # Types with no qualifier, and no point in putting one
-my %unqual = ('bytea' => 1);
+my %unqual = ('bytea' => 1, 'timestamp with time zone' => 1);
 
 # This function uses the two static lists above, plus domains and citext types that
 # may have been created during parsing, to convert mssql's types to pgsql's
@@ -966,9 +968,17 @@ sub generate_kettle
     {
         foreach my $cast (keys %{$objects->{CASTS}})
         {
-            $beforescript.= "DROP CAST IF EXISTS &#x28;varchar as $cast&#x29;;\n";
-            $beforescript.= "CREATE CAST &#x28;varchar as $cast&#x29; with inout as implicit;\n";
-            $afterscript.= "DROP CAST &#x28;varchar as $cast&#x29;;\n";
+            if ($objects->{CASTS}->{$cast} eq "C")
+            {
+                $beforescript.= "DROP CAST IF EXISTS &#x28;varchar as $cast&#x29;;\n";
+                $beforescript.= "CREATE CAST &#x28;varchar as $cast&#x29; with inout as implicit;\n";
+                $afterscript.= "DROP CAST &#x28;varchar as $cast&#x29;;\n";
+            }
+            elsif ($objects->{CASTS}->{$cast} eq "S")
+            {
+                $beforescript.= "update pg_cast set castcontext='i' where castsource='character varying'::regtype and casttarget='$cast'::regtype;\n";
+                $afterscript.= "update pg_cast set castcontext='e' where castsource='character varying'::regtype and casttarget='$cast'::regtype;\n";
+            }
         }
     }
     # Remove/restore triggers to be able to insert without FK checks
