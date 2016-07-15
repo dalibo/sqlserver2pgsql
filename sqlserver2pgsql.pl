@@ -140,7 +140,9 @@ sub convert_numeric_to_int
 }
 
 # This is a list of the types that require a cast to be imported in kettle
-my %types_to_cast = ('uuid'  => '1','date'  => '1');
+# C = using CREATE CAST
+# S = updating system catalog 
+my %types_to_cast = ('uuid'  => 'C','date'  => 'C','timestamp with time zone' => 'C','xml'  => 'S');
 
 # This sub adds a cast (if not defined already) if
 # - we generate for kettle
@@ -150,7 +152,7 @@ sub add_cast
     my ($type)=@_;
     if (defined $types_to_cast{$type})
     {
-        $objects->{CASTS}->{$type}=1;
+        $objects->{CASTS}->{$type}=$types_to_cast{$type};
     }
 }
 
@@ -184,10 +186,10 @@ my %types = ('int'              => 'int',
              'money'            => 'numeric',
              'smallmoney'       => 'numeric',
              'uniqueidentifier' => 'uuid',
-	     'xml'		=> 'xml',);
+             'xml'              => 'xml',);
 
 # Types with no qualifier, and no point in putting one
-my %unqual = ('bytea' => 1);
+my %unqual = ('bytea' => 1, 'timestamp with time zone' => 1);
 
 # This function uses the two static lists above, plus domains and citext types that
 # may have been created during parsing, to convert mssql's types to pgsql's
@@ -325,13 +327,19 @@ sub convert_type
 # if there is a conversion to be done.
 # uniqueidentifier is upper case in SQL Server, whereas uuid is lower case in PG
 # date is converted to varchar in the YYYY-MM-DD format
+# timestamp with time zone is converted to varchar in the YYYY-MM-DD HH:MI:SS.MMM (24h) with time zone format
+# xml columns with empty values will be converted to null since the empty values won't be accepted in PG (datalength of an empty xml column is 5)
 sub sql_convert_column
 {
     my ($colname,$coltype)=@_;
-    my %functions = ( 'uuid' => 'lower({colname})', 'date' => 'convert(varchar, {colname}, 120)' );
+    my %functions = (
+        'uuid' => 'lower({colname})',
+        'date' => 'convert(varchar(50), {colname}, 120)',
+        'timestamp with time zone(7)' => 'convert(varchar(50), {colname}, 121)',
+        'xml' => 'case when datalength({colname}) > 5 then {colname} else null end');
     if (defined ($functions{$coltype}))
     {
-        return $functions{$coltype} =~ s/\{colname\}/[$colname]/r;
+        return $functions{$coltype} =~ s/\{colname\}/[$colname]/gr;
     }
     else
     {
@@ -343,10 +351,14 @@ sub sql_convert_column
 # if there is a conversion to be done.
 # uuid is converted to varchar and forced to lower case
 # date is converted to varchar in the YYYY-MM-DD format
+# timestamp with time zone is converted to varchar in the YYYY-MM-DD HH:MI:SS.US+00 format (UTC)
 sub postgres_convert_column
 {
     my ($colname,$coltype)=@_;
-    my %functions = ( 'uuid' => 'lower(cast({colname} as varchar))', 'date' => 'to_char({colname}, \'YYYY-MM-DD\')' );
+    my %functions = (
+        'uuid' => 'lower(cast({colname} as varchar))',
+        'date' => 'to_char({colname}, \'YYYY-MM-DD\')',
+        'timestamp with time zone' => 'to_char({colname} AT TIME ZONE \'UTC\', \'YYYY-MM-DD HH:MI:SS.US+00\')');
     if (defined ($functions{$coltype}))
     {
         return $functions{$coltype} =~ s/\{colname\}/"$colname"/r;
@@ -958,9 +970,17 @@ sub generate_kettle
     {
         foreach my $cast (keys %{$objects->{CASTS}})
         {
-            $beforescript.= "DROP CAST IF EXISTS &#x28;varchar as $cast&#x29;;\n";
-            $beforescript.= "CREATE CAST &#x28;varchar as $cast&#x29; with inout as implicit;\n";
-            $afterscript.= "DROP CAST &#x28;varchar as $cast&#x29;;\n";
+            if ($objects->{CASTS}->{$cast} eq "C")
+            {
+                $beforescript.= "DROP CAST IF EXISTS &#x28;varchar as $cast&#x29;;\n";
+                $beforescript.= "CREATE CAST &#x28;varchar as $cast&#x29; with inout as implicit;\n";
+                $afterscript.= "DROP CAST &#x28;varchar as $cast&#x29;;\n";
+            }
+            elsif ($objects->{CASTS}->{$cast} eq "S")
+            {
+                $beforescript.= "UPDATE pg_cast SET castcontext='i' WHERE castsource='character varying'::regtype AND casttarget='$cast'::regtype;\n";
+                $afterscript.= "UPDATE pg_cast SET castcontext='e' WHERE castsource='character varying'::regtype AND casttarget='$cast'::regtype;\n";
+            }
         }
     }
     # Remove/restore triggers to be able to insert without FK checks
