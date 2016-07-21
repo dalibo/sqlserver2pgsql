@@ -184,7 +184,7 @@ my %types = ('int'              => 'int',
              'binary'           => 'bytea',
              'varbinary'        => 'bytea',
              'money'            => 'numeric',
-             'smallmoney'       => 'numeric',
+             'smallmoney'       => 'numeric(6,4)',
              'uniqueidentifier' => 'uuid',
              'xml'              => 'xml',);
 
