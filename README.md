@@ -5,14 +5,12 @@ This is a migration tool to convert a Microsoft SQL Server Database into a Postg
 
 It is written in Perl and has received a fair amount of testing.
 
-
 It does three things:
 
   * convert a SQL Server schema to a PostgreSQL schema
   * produce a Pentaho Data Integrator (Kettle) job to migrate 
-    all the data from SQL Server to PostgreSQL. This second part is optionnal
-  * produce an incremental version of this job to migrate what has changed in the database from the previous run. This is created
-    when the migration job is also created.
+    all the data from SQL Server to PostgreSQL (optional)
+  * produce an incremental version of this job to migrate what has changed in the database from the previous run. This is created when the migration job is also created.
 
 Please drop me a word (on github) if you use this tool, feedback is great. I also like pull requests :)
 
