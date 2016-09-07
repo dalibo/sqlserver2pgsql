@@ -63,12 +63,15 @@ run sqlserver2pgsql.pl from.
 
 If you just want to convert this schema, run:
 
-  > sqlserver2pgsql.pl -f my_sqlserver_script.txt -b name_of_before_script -a name_of_after_script -u name_of_unsure_script
+`sqlserver2pgsql.pl -f input_sql_dump -b output_before_script -a output_after_script -u output_unsure_script`
 
-The before script contains what is needed to import data (types, tables and columns).
-The after script contains the rest (indexes, constraints). It should be run
-after data is imported. The unsure script contains objects where we attempt to migrate, but cannot guarantee,
-such as views.
+The sqlserver2pgsql Perl script processes your SQL raw dump "input_sql_dump" and producse these three scripts:
+
+- output_before_script: contains what is needed to import data (types, tables and columns)
+
+- output_after_script: contains the rest (indexes, constraints)
+
+- output_unsure_script: contains objects where we attempt to migrate, but cannot guarantee, such as views
 
 -conf uses a conf file. All options below can also be set there. Command line options will overwrite conf options.
 There is an example of such a conf file (example_conf_file)
