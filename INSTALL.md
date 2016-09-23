@@ -6,6 +6,8 @@ has no dependancy on fancy Perl modules, it only uses modules from the base perl
 Just run the script with your perl interpreter, providing it with the requested options (--help
 will tell you what to do).
 
+If you are trying to run the script under Windows, you probably won't have a Perl interpreter. I recommand you use the latest Strawberry Perl (use either the installer or the portable version).
+
 If you want to migrate the data, you'll need "Kettle", an Open Source ETL. Get the latest version
 from here: http://kettle.pentaho.com/ .
 You'll also need a SQL Server account with the permission to SELECT from the tables you want to migrate.
