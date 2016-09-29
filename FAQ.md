@@ -36,3 +36,7 @@ bad plans, etc.
 * Some columns may take into account trailing spaces, some won't (it must be ansi_padding). Anyway, this 
 doesn't exist either in PG. So more constraints will fail.
 * PLpgSQL is very different from T-SQL, so you'll have trouble with stored procedures. It may be worth to give https://bitbucket.org/openscg/pgtsql a try …
+
+Can this tool migrate functions and stored procedures?
+----------------------------------
+No, Transact-SQL is very different from PostgreSQL's many PL languages. You could give a look at https://bitbucket.org/openscg/pgtsql but I can't help you with this… and I don't think it is a long term viable option.
