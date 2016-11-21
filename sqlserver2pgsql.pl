@@ -42,7 +42,7 @@ our $after_file;
 our $unsure_file;
 our $keep_identifier_case;
 our $validate_constraints='yes';
-our $parallelism=8;
+our $parallelism;
 our $sort_size=10000;
 our $use_pk_if_possible=0;
 our $requires_postgis=0;
@@ -79,6 +79,7 @@ sub parse_conf_file
                       'postgresql username'      => 'pu',
                       'postgresql password'      => 'pw',
                       'kettle directory'         => 'kettle',
+                      'parallelism'              => 'parallelism',
                       'before file'              => 'before_file',
                       'after file'               => 'after_file',
                       'unsure file'              => 'unsure_file',
@@ -122,6 +123,7 @@ sub parse_conf_file
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
     $keep_identifier_case=0 unless (defined ($keep_identifier_case));
+    $parallelism=8 unless (defined ($parallelism));
     close CONF;
 }
 
@@ -656,6 +658,7 @@ sub usage
     print "-pp: postgresql port\n";
     print "-pu: postgresql username\n";
     print "-pw: postgresql password\n";
+    print "-p: parallelism level for the kettle job\n";
 }
 
 # This function generates kettle transformations, and a kettle job running all these
@@ -2515,6 +2518,7 @@ sub resolve_name_conflicts
 my $help = 0;
 
 my $options = GetOptions("k=s"    => \$kettle,
+                         "p=i"    => \$parallelism,
                          "b=s"    => \$before_file,
                          "a=s"    => \$after_file,
                          "u=s"    => \$unsure_file,

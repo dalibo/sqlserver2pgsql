@@ -145,6 +145,7 @@ cleartext, so don't make this directory public):
 -pu : postgresql username
 -pw : postgresql password
 -f  : the SQL Server structure dump file
+-p  : The parallelism used in kettle jobs: there will be this amount of sessions used to insert into PostgreSQL. Default to 8
 
 You've generated everything. Let's do the import:
 
