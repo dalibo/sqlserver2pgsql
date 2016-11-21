@@ -30,10 +30,10 @@ my $objects;
 # These are global variables, from configuration file or command line arguments
 our ($sd, $sh, $si, $sp, $su, $sw, $pd, $ph, $pp, $pu, $pw);    # Connection args
 our $conf_file;
-our $filename;    # Filename passed as arg
-our $case_insensitive; # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
-      # If yes, we will generate citext with CHECK constraints, that's the best we can do
-our $norelabel_dbo;    # Passed as arg: should we convert DBO to public ?
+our $filename;          # Filename passed as arg
+our $case_insensitive;  # Passed as arg: was SQL Server installation case insensitive ? PostgreSQL can't ignore accents anyway
+                        # If yes, we will generate citext with CHECK constraints, that's the best we can do
+our $norelabel_dbo;     # Passed as arg: should we convert DBO to public ?
 our $relabel_schemas;
 our $convert_numeric_to_int; # Should we convert numerics to int when possible ? (numeric (4,0) could be converted an int, for instance)
 our $kettle;
@@ -41,10 +41,12 @@ our $before_file;
 our $after_file;
 our $unsure_file;
 our $keep_identifier_case;
-our $validate_constraints='yes';
+our $validate_constraints;
 our $parallelism;
-our $sort_size=10000;
-our $use_pk_if_possible=0;
+our $sort_size;
+our $use_pk_if_possible;
+
+# Will be set if we detect GIS objects
 our $requires_postgis=0;
 
 # These three variables are loaded in the BEGIN block at the end of this file (they are very big
@@ -124,6 +126,12 @@ sub parse_conf_file
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
     $keep_identifier_case=0 unless (defined ($keep_identifier_case));
     $parallelism=8 unless (defined ($parallelism));
+    $sort_size=10000 unless (defined ($sort_size));
+    $use_pk_if_possible unless (defined ($use_pk_if_possible));
+    $validate_constraints='yes' unless (defined ($validate_constraints));
+    # Default ports for PostgreSQL and SQL Server
+    $pp=5432 unless (defined ($pp));
+    $sp=1433 unless (defined ($sp));
     close CONF;
 }
 
@@ -637,7 +645,7 @@ sub usage
         "-keep_identifier_case tells $0 to keep the case of sql server database objects (not advised). Default is to lowercase everything.\n";
     print "before_file contains the structure\n";
     print "after_file contains index, constraints\n";
-    print "validate_constraint validates the constraints that have been created\n";
+    print "validate_constraints validates the constraints that have been created\n";
     print "sort_size will change size of sort batch for the incremental job. Too small and it will be slow, too big and you will get Java Out of Heap Memory errors.\n";
     print "sort_size is 10000, which is very low, to try to avoid problems. First, raise java heap memory (in the kitchen script), then try higher values if you need more speed\n";
     print "use_pk_if_possible is false (0) by default. You can put it to 1 (true), or give a comma separated list of tables (with schema). Compared case insensitively\n";

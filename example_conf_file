@@ -27,6 +27,8 @@ no relabel dbo=1 # set it to 0 to convert the dbo schema to public
 convert numeric to int=1 # set it to 0 to keep numeric(xx,0) as numeric(xx,0). Will be converted to smallint, int or bigint by default
 relabel schemas=dbo=>foo;schema1=>bar
 keep identifier case=1 # keep case of database objects
+validate constraints = yes # yes, after or no, should the constraints be validated by the dump ? (yes=validate during load, after after the load, no keep invalidated)
+
 # Incremental job
 sort size=10000 # drives the amount of memory and temporary files that will be created by an incremental job
 use pk if possible=0 # 1/list of tables, for tables where you want to try getting already sorted records

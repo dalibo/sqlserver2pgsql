@@ -90,6 +90,8 @@ there is a default dbo=>public remapping, that can be cancelled with -nr. Use do
 -num : Converts numeric (xxx,0) to the appropriate smallint, integer or bigint. It won't keep the constraint on
 the size of the scale of the numeric
 
+-keep_identifier_case: don't convert the dump to all lower case. This is not recommended, as you'll have to put every identifier (column, table…) in double quotes…
+
 -validate_constraints=yes/after/no: for foreign keys, if yes: foreign keys are created as valid in the after script (default)
                                                       if no: they are created as not valid (enforced only for new rows)
                                                       if after: they are created as not valid, but the statements to validate them are put in the unsure file
