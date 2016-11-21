@@ -120,19 +120,24 @@ sub parse_conf_file
         $$param_name = $value;
         use strict 'refs';
     }
-    # Hard coded default values
+
+    close CONF;
+}
+
+sub set_default_conf_values
+{
+	# Hard coded default values, set only if not passed or found in configuration
     $case_insensitive=0 unless (defined ($case_insensitive));
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
     $keep_identifier_case=0 unless (defined ($keep_identifier_case));
     $parallelism=8 unless (defined ($parallelism));
     $sort_size=10000 unless (defined ($sort_size));
-    $use_pk_if_possible unless (defined ($use_pk_if_possible));
+    $use_pk_if_possible=0 unless (defined ($use_pk_if_possible));
     $validate_constraints='yes' unless (defined ($validate_constraints));
     # Default ports for PostgreSQL and SQL Server
     $pp=5432 unless (defined ($pp));
     $sp=1433 unless (defined ($sp));
-    close CONF;
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -2566,6 +2571,9 @@ if ($conf_file)
 {
     parse_conf_file();
 }
+
+# Set default values for anything not set yet
+set_default_conf_values();
 
 # We have no before, after, or unsure
 if (   not $before_file
