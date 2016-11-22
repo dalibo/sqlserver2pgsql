@@ -2,9 +2,9 @@
 <html>
 
   <head>
-    <meta charset='utf-8' />
-    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
-    <meta name="description" content="Sqlserver2pgsql : Migration tool to convert a Microsoft SQL Server Database into a PostgreSQL database, as automatically as possible" />
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta name="description" content="Sqlserver2pgsql : Migration tool to convert a Microsoft SQL Server Database into a PostgreSQL database, as automatically as possible">
 
     <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
 
@@ -32,7 +32,7 @@
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
         <h1>
-<a name="sqlserver2pgsql" class="anchor" href="#sqlserver2pgsql"><span class="octicon octicon-link"></span></a>sqlserver2pgsql</h1>
+<a id="sqlserver2pgsql" class="anchor" href="#sqlserver2pgsql" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>sqlserver2pgsql</h1>
 
 <p>This is a migration tool to convert a Microsoft SQL Server Database into a PostgreSQL database, as automatically as possible.</p>
 
@@ -44,8 +44,10 @@
 <li>convert a SQL Server schema to a PostgreSQL schema</li>
 <li>produce a Pentaho Data Integrator (Kettle) job to migrate 
 all the data from SQL Server to PostgreSQL. This second part is optionnal</li>
-</ul><h1>
-<a name="notes-warnings" class="anchor" href="#notes-warnings"><span class="octicon octicon-link"></span></a>Notes, warnings:</h1>
+</ul>
+
+<h1>
+<a id="notes-warnings" class="anchor" href="#notes-warnings" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Notes, warnings:</h1>
 
 <p>This tool will never be completely finished. For now, it works with all the SQL Server
 databases I had to migrate. If it doesn't work with yours, feel free to modify this,
@@ -60,12 +62,12 @@ with Windows, and on any Unix system.</p>
 <p>You'll need to install a few things to make it work. See INSTALL.md</p>
 
 <h1>
-<a name="install" class="anchor" href="#install"><span class="octicon octicon-link"></span></a>Install</h1>
+<a id="install" class="anchor" href="#install" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Install</h1>
 
 <p>See <a href="https://github.com/dalibo/sqlserver2pgsql/blob/master/INSTALL.md">https://github.com/dalibo/sqlserver2pgsql/blob/master/INSTALL.md</a></p>
 
 <h1>
-<a name="usage" class="anchor" href="#usage"><span class="octicon octicon-link"></span></a>Usage</h1>
+<a id="usage" class="anchor" href="#usage" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Usage</h1>
 
 <p>Ok, I have installed Kettle and Java, I have sqlserver2pgsql.pl, what do I do now ?</p>
 
@@ -76,7 +78,9 @@ with Windows, and on any Unix system.</p>
 IP address, port, username, password, database name</li>
 <li>Access to an empty PostgreSQL database (where you want your migrated data)</li>
 <li>A text file containing a SQL dump of the SQL Server database</li>
-</ul><p>To get this SQL Dump, follow this procedure, in SQL Server's management interface:</p>
+</ul>
+
+<p>To get this SQL Dump, follow this procedure, in SQL Server's management interface:</p>
 
 <ul>
 <li>Under SQL Server Management Studio, Right click on the database you want to export</li>
@@ -89,7 +93,9 @@ IP address, port, username, password, database name</li>
 <li>Script to file, choose a filename, then "Next"</li>
 <li>Select unicode encoding (who knows…, maybe someone has put accents in objects names, or in comments)</li>
 <li>Finish</li>
-</ul><p>You'll get a file containing a SQL script. Get it on the server you'll want to
+</ul>
+
+<p>You'll get a file containing a SQL script. Get it on the server you'll want to
 run sqlserver2pgsql.pl from.</p>
 
 <p>If you just want to convert this schema, run:</p>
@@ -171,12 +177,12 @@ cleartext, so don't make this directory public):
 <p>There is an example configuration file provided. You can also mix the configuration file with command line options. Command line options have the priority over values set in the configuration file.</p>
 
 <h1>
-<a name="faq" class="anchor" href="#faq"><span class="octicon octicon-link"></span></a>FAQ</h1>
+<a id="faq" class="anchor" href="#faq" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>FAQ</h1>
 
 <p>See <a href="https://github.com/dalibo/sqlserver2pgsql/blob/master/FAQ.md">https://github.com/dalibo/sqlserver2pgsql/blob/master/FAQ.md</a></p>
 
 <h1>
-<a name="licence" class="anchor" href="#licence"><span class="octicon octicon-link"></span></a>Licence</h1>
+<a id="licence" class="anchor" href="#licence" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Licence</h1>
 
 <p>GPL v3 : <a href="http://www.gnu.org/licenses/gpl.html">http://www.gnu.org/licenses/gpl.html</a></p>
       </section>
@@ -186,7 +192,7 @@ cleartext, so don't make this directory public):
     <div id="footer_wrap" class="outer">
       <footer class="inner">
         <p class="copyright">Sqlserver2pgsql maintained by <a href="https://github.com/dalibo">dalibo</a></p>
-        <p>Published with <a href="http://pages.github.com">GitHub Pages</a></p>
+        <p>Published with <a href="https://pages.github.com">GitHub Pages</a></p>
       </footer>
     </div>
 
