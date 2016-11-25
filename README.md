@@ -83,21 +83,22 @@ There is an example of such a conf file (example_conf_file)
 
 You can also use the -i, -num and/or -nr options:
 
--i  : Generate an "ignore case" schema, using citext, to emulate MSSQL's case insensitive collation.
+`-i`  : Generate an "ignore case" schema, using citext, to emulate MSSQL's case insensitive collation.
       It will create citext fields, with check constraints. This type is slower on string comparison operations.
 
--nr : Don't convert the dbo schema to public. By default, this conversion is done, as it converts MSSQL's default
+`-nr` : Don't convert the dbo schema to public. By default, this conversion is done, as it converts MSSQL's default
 schema (dbo) to PostgreSQL's default schema (public)
 
--relabel_schemas is a list of schemas to remap. The syntax is : 'source1=>dest1;source2=>dest2'. Don't forget to quote this option or the shell might alter it
-there is a default dbo=>public remapping, that can be cancelled with -nr. Use double quotes instead of simple quotes on Windows.
+`-relabel_schemas` is a list of schemas to remap. The syntax is : `source1=>dest1;source2=>dest2`. Don't forget to quote this option or the shell might alter it
+there is a default `dbo=>public` remapping, that can be cancelled with `-nr`. Use double quotes instead of simple quotes on Windows.
 
--num : Converts numeric (xxx,0) to the appropriate smallint, integer or bigint. It won't keep the constraint on
-the size of the scale of the numeric. But smallint, integer and bigint types are faster than numeric.
+`-num` : Converts numeric (xxx,0) to the appropriate smallint, integer or bigint. It won't keep the constraint on
+the size of the scale of the numeric. smallint, integer and bigint types are much faster than numeric, ano often used only as surrogate keys,
+so the scale is often not important.
 
--keep_identifier_case: don't convert the dump to all lower case. This is not recommended, as you'll have to put every identifier (column, table…) in double quotes…
+`-keep_identifier_case`: don't convert the dump to all lower case. This is not recommended, as you'll have to put every identifier (column, table…) in double quotes…
 
--validate_constraints=yes/after/no: for foreign keys, if yes: foreign keys are created as valid in the after script (default)
+`-validate_constraints=yes/after/no`: for foreign keys, if yes: foreign keys are created as valid in the after script (default)
                                                       if no: they are created as not valid (enforced only for new rows)
                                                       if after: they are created as not valid, but the statements to validate them are put in the unsure file
 
@@ -110,38 +111,41 @@ If you want to also import data:
     -pd dest -ph localhost -pp 5432 -pu dalibo -pw mypgpass -f sql_server_schema.sql
 ```
 
--k is the directory where you want to store the kettle xml files (there will be
+`-k` is the directory where you want to store the kettle xml files (there will be
 one for each table to copy, plus the one for the job)
 
 You'll also need to specify the connection parameters. They will be stored inside the kettle files (in
 cleartext, so don't make this directory public):
--sd : sql server database
--sh : sql server host
--si : sql server host instance
--sp : sql server port (usually 1433)
--su : sql server username
--sw : sql server password
--pd : postgresql database
--ph : postgresql host
--pp : postgresql port
--pu : postgresql username
--pw : postgresql password
--f  : the SQL Server structure dump file
+`-sd` : sql server database
+`-sh` : sql server host
+`-si` : sql server host instance
+`-sp` : sql server port (usually 1433)
+`-su` : sql server username
+`-sw` : sql server password
+`-pd` : postgresql database
+`-ph` : postgresql host
+`-pp` : postgresql port
+`-pu` : postgresql username
+`-pw` : postgresql password
+`-f`  : the SQL Server structure dump file
 
 
--p  : The parallelism used in kettle jobs: there will be this amount of sessions used to insert into PostgreSQL. Default to 8
--sort_size=100000: sort size to use for incremental jobs. Default is 10000, to try to be on the safe side (see below).
+`-p`  : The parallelism used in kettle jobs: there will be this amount of sessions used to insert into PostgreSQL. Default to 8
+`-sort_size=100000`: sort size to use for incremental jobs. Default is 10000, to try to be on the safe side (see below).
 
 We don't sort in databases for two reasons: the sort order (collation for strings for example) can be different between SQL Server
 and PostgreSQL, and we don't want to stress the servers more than needed anyway. But sorting a lot of data in Java can generate a Java Out of Heap Memory error.
-If you get Out of Memory errors, raise the Java Heap memory (in the kitchen script) as much as you can. If you still have the problem, reduce
-this sort size. You can also try reducing parallelism, having one or two sorts instead of 8 will of course consume less memory. The last problem is that
-if the sort_size is small, kettle is going to generate a very large amount of temporary files, and then read them back sorted. So you may hit the
-"too many open files" limit of your system (default 1024 on linux for instance). So you'll have to do some tuning here:
 
-  - First, use as much Java memory as you can: set the JAVAXMEM environment variable to 4096 (megabytes) or more if you can afford it. The more the better.
-  - If you still get Out Of Memory errors, put a smaller sort size, until you can do the sorts (decrease it tenfold each time for example). You'll obviously lose some performance
-  - If then you get the too many open files error, raise the maximum number of open files. In most Linux distributions, this is editing /etc/security/limits.conf and putting
+If you get Out of Memory errors, raise the Java Heap memory (in the kitchen script) as much as you can. If you still have the problem, reduce
+this sort size. You can also try reducing parallelism, having one or two sorts instead of 8 will of course consume less memory.
+
+The last problem is that if the sort_size is small, kettle is going to generate a very large amount of temporary files, and then
+read them back sorted. So you may hit the "too many open files" limit of your system (default 1024 on linux for instance).
+So you'll have to do some tuning here:
+
+- First, use as much Java memory as you can: set the JAVAXMEM environment variable to 4096 (megabytes) or more if you can afford it. The more the better.
+- If you still get Out Of Memory errors, put a smaller sort size, until you can do the sorts (decrease it tenfold each time for example). You'll obviously lose some performance
+- If then you get the too many open files error, raise the maximum number of open files. In most Linux distributions, this is editing /etc/security/limits.conf and putting
 ```
 @userName soft nofile 65535
 @userName hard nofile 65535
@@ -156,9 +160,9 @@ You can also edit only the offending transformation with Spoon (Kettle's GUI), s
 
 When Kettle crashed on one of these problems, the temporary files aren't removed. They are usually in /tmp (or in your temp directory in Windows), and start with out_. Don't forget to remove them.
 
--use_pk_if_possible=0/1/public.table1,myschema.table2: enable the generation of jobs doing sorts in the databases (order by in the select part of Kettle's table inputs).
+`-use_pk_if_possible=0/1/public.table1,myschema.table2`: enable the generation of jobs doing sorts in the databases (order by in the select part of Kettle's table inputs).
 
-1 will ask to try for all tables, or you can give a list of tables (if for example, you cannot make these tables work with a reasonable sort size). Anyway, sqlserver2pgsql will only accept
+`1` will ask to try for all tables, or you can give a list of tables (if for example, you cannot make these tables work with a reasonable sort size). Anyway, sqlserver2pgsql will only accept
 to do sorts in the database if the primary key can be guaranteed to be sorted the same way in PostgreSQL and SQL Server. That means that it only accepts if the key is made only of numeric
 and date/timestamp types. If not, the standard, kettle-sorting incremental job will be generated.
 
@@ -175,7 +179,8 @@ Now you've generated everything. Let's do the import:
   psql -U mypguser mypgdatabase -f name_of_after_script
 ```
 
-If you want to dig deeper into the kettle job, you can use kettle_report.pl to display the individual table's transfer performance. Then, if needed, you'll be able to modify the Kettle job to optimize it, using Spoon, Kettle's GUI
+If you want to dig deeper into the kettle job, you can use kettle_report.pl to display the individual table's transfer performance (you'll need to redirect
+kitchen's output to a file). Then, if needed, you'll be able to modify the Kettle job to optimize it, using Spoon, Kettle's GUI
 
 
 You can also give a try to the incremental job:
