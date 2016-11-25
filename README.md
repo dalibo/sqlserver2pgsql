@@ -64,13 +64,13 @@ run sqlserver2pgsql.pl from.
 If you just want to convert this schema, run:
 
 ```
-./sqlserver2pgsql.pl -f input_sql_dump \
+./sqlserver2pgsql.pl -f sqlserver_sql_dump \
                    -b output_before_script\
                    -a output_after_script\
                    -u output_unsure_script
 ```
 
-The sqlserver2pgsql Perl script processes your SQL raw dump "input_sql_dump" and produces these three scripts:
+The sqlserver2pgsql Perl script processes your SQL raw dump "sqlserver_sql_dump" and produces these three scripts:
 
 - output_before_script: contains what is needed to import data (types, tables and columns)
 
@@ -151,8 +151,8 @@ So you'll have to do some tuning here:
 @userName hard nofile 65535
 ```
 
-(replace userName with your user name). Log in again, and verify with "ulimit -n" that you are now allowed to open 65535 files.
-You may also have to raise the maximum number of open files on the system: echo the new value to /proc/sys/fs/file-max.
+(replace userName with your user name). Log in again, and verify with `ulimit -n` that you are now allowed to open 65535 files.
+You may also have to raise the maximum number of open files on the system: `echo` the new value to `/proc/sys/fs/file-max`.
 
 You'll need a lot of temporary space on disk to do these sorts...
 
