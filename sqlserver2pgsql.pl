@@ -2556,7 +2556,7 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "keep_identifier_case" =>\$keep_identifier_case,
                          "validate_constraints=s" =>\$validate_constraints,
                          "sort_size=i"            =>\$sort_size,
-                         "use_pk_if_possible=s"            =>\$use_pk_if_possible,);
+                         "use_pk_if_possible=s"   =>\$use_pk_if_possible,);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)
