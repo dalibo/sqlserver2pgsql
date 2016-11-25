@@ -64,7 +64,7 @@ run sqlserver2pgsql.pl from.
 If you just want to convert this schema, run:
 
 ```
-sqlserver2pgsql.pl -f input_sql_dump \
+./sqlserver2pgsql.pl -f input_sql_dump \
                    -b output_before_script\
                    -a output_after_script\
                    -u output_unsure_script
@@ -167,12 +167,12 @@ Now you've generated everything. Let's do the import:
 
 ```
   # Run the before script (creates the tables)
-  > psql -U mypguser mypgdatabase -f name_of_before_script
+  psql -U mypguser mypgdatabase -f name_of_before_script
   # Run the kettle job:
-  > cd my_kettle_installation_directory
-  > ./kitchen.sh -file=full_path_to_kettle_job_dir/migration.kjb -level=detailed
+  cd my_kettle_installation_directory
+  ./kitchen.sh -file=full_path_to_kettle_job_dir/migration.kjb -level=detailed
   # Run the after script (creates the indexes, constraints...)
-  > psql -U mypguser mypgdatabase -f name_of_after_script
+  psql -U mypguser mypgdatabase -f name_of_after_script
 ```
 
 If you want to dig deeper into the kettle job, you can use kettle_report.pl to display the individual table's transfer performance. Then, if needed, you'll be able to modify the Kettle job to optimize it, using Spoon, Kettle's GUI
