@@ -101,7 +101,7 @@ sub parse_conf_file
     while (my $line = <CONF>)
     {
         $line =~ s/#.*//;        # Remove comments
-        $line =~ s/\s+=\s+//;    # Remove whitespaces around the =
+        $line =~ s/\s+=\s+/=/;    # Remove whitespaces around the =
         $line =~ s/\s+$//;       # Remove trailing whitespaces
         next
             if ($line =~ /^$/);  # Empty line after comments have been removed
@@ -1853,7 +1853,7 @@ EOF
             }
             $constraint->{TYPE}  = 'CHECK';
             $constxt =~
-                s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
+                s/\[(\S+?)\]/$1/g; # We remove the []. And hope this will parse
             $constraint->{TEXT} = $constxt;
             push @{$objects->{SCHEMAS}->{$schema}->{'TABLES'}->{$table}->{CONSTRAINTS}},
                 ($constraint);
