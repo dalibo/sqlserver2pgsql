@@ -101,7 +101,7 @@ sub parse_conf_file
     while (my $line = <CONF>)
     {
         $line =~ s/#.*//;        # Remove comments
-        $line =~ s/\s+=\s+//;    # Remove whitespaces around the =
+        $line =~ s/\s+=\s+/=/;    # Remove whitespaces around the =
         $line =~ s/\s+$//;       # Remove trailing whitespaces
         next
             if ($line =~ /^$/);  # Empty line after comments have been removed
