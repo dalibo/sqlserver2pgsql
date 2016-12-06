@@ -1148,6 +1148,8 @@ sub add_column_to_table
 
         $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
             = $startseq;
+        $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MIN}
+            = $startseq;
         $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
             = $stepseq;
         $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}
@@ -1375,6 +1377,59 @@ EOF
         ################################################################
         # From HERE, these SQL commands are not linked to a create table
         ################################################################
+        elsif ($line =~ /^CREATE SEQUENCE \[(.*)\]\.\[(.*)\]/)
+        {
+			my $schemaname   = relabel_schemas($1);
+            my $orig_schema = $1;
+            my $seqname     = $2;
+            while (my $contline = read_and_clean($file))
+            {
+				if ($contline =~ /^\s*AS \[.*\]\s*$/)
+				{
+					next; # We don't care, sequences are always bigint in PostgreSQL
+				}
+				elsif ($contline =~ /^\s*START WITH (\d+)\s*$/)
+				{
+					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{START}=$1;
+				}
+				elsif ($contline =~ /^\s*INCREMENT BY (\d+)\s*$/)
+				{
+					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}=$1;
+				}
+				elsif ($contline =~ /^\s*MINVALUE (-?\d+)\s*$/)
+				{
+					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MIN}=$1;
+				}
+				elsif ($contline =~ /^\s*MAXVALUE (-?\d+)\s*$/)
+				{
+					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MAX}=$1;
+				}
+				elsif ($contline =~ /^\s*(NO)?CACHE( \d+)?\s*$/)
+				{
+					if (defined $1)
+					{
+						# It's a no cache. Equivalent to CACHE = 1 in PostgreSQL
+						$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=1;
+					}
+					elsif (defined $2)
+					{
+						# We have a specified value
+						$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=$2;
+					}
+					else
+					{
+						# Cache, but not specified. SQL Server isn't very clear on the size of the cache. Let's say 100
+						$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=100;
+					}
+				}
+				elsif ($contline =~ /^GO$/)
+				{
+					next MAIN;
+				}
+			}
+            
+            
+		}
         elsif ($line =~ /^CREATE SCHEMA \[(.*)\]/)
         {
             $objects->{SCHEMAS}->{relabel_schemas($1)} = undef
@@ -2148,16 +2203,34 @@ sub generate_schema
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
-            print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence) . " INCREMENT BY "
-                . $seqref->{STEP}
-                . " MINVALUE "
-                . $seqref->{START}
-                . " START WITH "
-                . $seqref->{START}
-                . " OWNED BY "
-                . format_identifier($seqref->{OWNERSCHEMA}) . '.'
-                . format_identifier($seqref->{OWNERTABLE}) . '.'
-                . format_identifier($seqref->{OWNERCOL}) . ";\n";
+            print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence);
+				if (defined $seqref->{STEP})
+				{
+					print AFTER " INCREMENT BY ",$seqref->{STEP};
+				}
+				if (defined $seqref->{MIN})
+				{
+					print AFTER " MINVALUE ",$seqref->{MIN};
+				}
+				if (defined $seqref->{MAX})
+				{
+					print AFTER " MAXVALUE ",$seqref->{MAX};
+				}
+				if (defined $seqref->{START})
+				{
+					print AFTER " START WITH ",$seqref->{START};
+				}
+				if (defined $seqref->{CACHE})
+				{
+					print AFTER " CACHE ",$seqref->{CACHE};
+				}
+				if (defined $seqref->{OWNERTABLE})
+				{
+					print AFTER " OWNED BY ",format_identifier($seqref->{OWNERSCHEMA}),
+					            '.',format_identifier($seqref->{OWNERTABLE}),
+					            '.',format_identifier($seqref->{OWNERCOL});
+				}
+				print AFTER ";\n";
         }
 
         # Now PK. We have to go through all tables
@@ -2341,7 +2414,10 @@ sub generate_schema
     {
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
-            my $seqref = $refschema->{SEQUENCES}->{$sequence};
+			my $seqref = $refschema->{SEQUENCES}->{$sequence};
+			# This may not be an identity. Skip it then
+			next unless defined ($seqref->{OWNERCOL});
+			
             print AFTER "select setval('" . format_identifier($schema) . '.' . format_identifier($sequence) . "',(select max(". format_identifier($seqref->{OWNERCOL}) .") from " . format_identifier($seqref->{OWNERSCHEMA}) . '.'. format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
         }
     }
