@@ -1853,7 +1853,7 @@ EOF
             }
             $constraint->{TYPE}  = 'CHECK';
             $constxt =~
-                s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
+                s/\[(\S+?)\]/$1/g; # We remove the []. And hope this will parse
             $constraint->{TEXT} = $constxt;
             push @{$objects->{SCHEMAS}->{$schema}->{'TABLES'}->{$table}->{CONSTRAINTS}},
                 ($constraint);
