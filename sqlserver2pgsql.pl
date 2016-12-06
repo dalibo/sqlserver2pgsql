@@ -354,7 +354,9 @@ sub sql_convert_column
         'xml' => 'case when datalength({colname}) > 5 then {colname} else null end');
     if (defined ($functions{$coltype}))
     {
-        return $functions{$coltype} =~ s/\{colname\}/[$colname]/gr;
+	my $tmpcol=$functions{$coltype};
+	$tmpcol =~ s/\{colname\}/[$colname]/g;
+        return $tmpcol;
     }
     else
     {
@@ -376,7 +378,9 @@ sub postgres_convert_column
         'timestamp with time zone' => 'to_char({colname} AT TIME ZONE \'UTC\', \'YYYY-MM-DD HH:MI:SS.US+00\')');
     if (defined ($functions{$coltype}))
     {
-        return $functions{$coltype} =~ s/\{colname\}/"$colname"/r;
+	my $tmpcol = $functions{$coltype};
+	$tmpcol =~ s/\{colname\}/"$colname"/;
+        return $tmpcol;
     }
     else
     {
