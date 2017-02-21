@@ -1232,7 +1232,7 @@ sub parse_dump
 		# (it makes it possible to do a select xxx WHERE $ROWGUID, without knowing the column name, typical microsoft stuff :( )
 		# To make matters even worse, they seem to systematically add a space after it :)
                 if ($line =~
-                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
+                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(?:SPARSE )?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
                     )
                 {
                     #Deported into a function because we can also meet alter table add columns on their own
@@ -1370,7 +1370,7 @@ EOF
                 }
                 else
                 {
-                    die "Cannot understand $line\n";
+                    croak "Cannot understand $line\n";
                 }
             }
         }
@@ -1575,7 +1575,7 @@ EOF
                 }
                 else
                 {
-                    die "Cannot understand $typeline\n";
+                    croak "Cannot understand $typeline\n";
                 }
             }
         }
@@ -1707,7 +1707,7 @@ EOF
                 }
                 else
                 {
-                    die "Cannot understand $consline.";
+                    croak "Cannot understand $consline.";
                 }
             }
         }
@@ -1831,7 +1831,7 @@ EOF
 		}
                 else
                 {
-                    die "Cannot parse $fk $., in a FK. This is a bug";
+                    croak "Cannot parse $fk $., in a FK. This is a bug";
                 }
             }
         }
@@ -1882,7 +1882,7 @@ EOF
 
             # First step: what kind is it ? we are only interested in comments for now
             $sqlproperty =~ /\@name=N'(.*?)'/
-                or die
+                or croak
                 "Cannot find a name for this extended property: $sqlproperty";
             my $propertyname = $1;
             if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1|Display Name|Description|Example Values|Source System|Table Description|Table Type|ETL Rules|Display Folder|SCD  Type|Source Datatype)$/)
@@ -1926,7 +1926,7 @@ EOF
                 }
                 else
                 {
-                    die "Cannot understand this comment: $sqlproperty";
+                    croak "Cannot understand this comment: $sqlproperty";
                 }
             }
             elsif ($propertyname eq 'Dictionary')
@@ -1934,7 +1934,7 @@ EOF
                 # It seems to be another way to declare table comments. I hope this is right
                 $sqlproperty =~
                     /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*?)(?<!')'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')/s
-                    or die "Could not parse $sqlproperty. This is a bug.";
+                    or croak "Could not parse $sqlproperty. This is a bug.";
                 my ($comment, $schema, $obj, $objname)
                     = ($2, $4, $5, $6);
                 $schema=relabel_schemas($schema);
@@ -1946,12 +1946,12 @@ EOF
                 elsif ($obj eq 'SCHEMA')
                 {
                     # Never met one for now. Die and ask to send me an example
-                    die "Schema comment : <$comment> not understood. Please send a bug report\n";
+                    croak "Schema comment : <$comment> not understood. Please send a bug report\n";
                 }
             }
             else
             {
-                die
+                croak
                     "Don't know what to do with this extendedproperty: $sqlproperty";
             }
         }
@@ -2377,7 +2377,7 @@ sub generate_schema
                 else
                 {
                     # Shouldn't get there. it would mean I have forgotten a type of constraint
-                    die "I couldn't translate a constraint. This is a bug";
+                    croak "I couldn't translate a constraint. This is a bug";
                 }
             }
         }
@@ -2667,7 +2667,7 @@ if (   not $before_file
 
 if ($validate_constraints !~ '^(yes|after|no)$')
 {
-    die "validate_constraints should be yes, after or no (default yes)\n";
+    croak "validate_constraints should be yes, after or no (default yes)\n";
 }
 
 # We have been asked for kettle, but the compulsory parameters are not there
