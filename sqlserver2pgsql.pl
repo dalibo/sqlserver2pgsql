@@ -101,7 +101,7 @@ sub parse_conf_file
     while (my $line = <CONF>)
     {
         $line =~ s/#.*//;        # Remove comments
-        $line =~ s/\s+=\s+/=/;    # Remove whitespaces around the =
+        $line =~ s/\s+=\s+//;    # Remove whitespaces around the =
         $line =~ s/\s+$//;       # Remove trailing whitespaces
         next
             if ($line =~ /^$/);  # Empty line after comments have been removed
@@ -1470,22 +1470,44 @@ EOF
         # containing only a single quote (end of the dbo.sp_executesql)
         # The problem is that SQL Server seems to be spitting the original query used to create the view, not a normalized version
         # of it, as PostgreSQL does. So we capture the query, and hope it works for now.
-        elsif ($line =~
-               /^\s*(create\s*view)\s*(?:\[(\S+)\]\.)?\[(.*?)\]\s*(.*)$/i)
+        elsif ($line =~/^\s*(create\s*view)/i)
         {
-            my $viewname = $3;
+            my $viewname;
             my $schemaname;
-            if (defined $2)
+            my $supplement;
+            # Either we have the create view and the object name with it, or it is on next non-empty line
+            if ( $line =~ /^\s*(create\s*view)\s*(?:\[(\S+)\]\.)?\[(.*?)\]\s*(.*)$/i)
             {
-                $schemaname = $2;
+                $viewname = $3;
+                if (defined $2)
+                {
+                    $schemaname = $2;
+                }
+                else
+                {
+                    $schemaname = 'dbo';
+                }
+                $supplement=$4;
             }
             else
             {
-                $schemaname = 'dbo';
+                # Find the line containing the view name. For now, it's the next line. If not, well, correct your dump by yourself, sorry :)
+                my $line_name = read_and_clean($file);
+                $line_name=~ /^\s*(?:\[(\S+)\]\.)?\[(.*?)\]\s*(.*)$/ or croak "This line $line_name doesn't contain a view name";
+                $viewname = $2;
+                if (defined $1)
+                {
+                    $schemaname = $1;
+                }
+                else
+                {
+                    $schemaname = 'dbo';
+                }
+                $supplement=$3;
             }
             $schemaname = relabel_schemas($schemaname);
 
-            my $sql = $1 . ' ' . $schemaname . '.' . $3 . ' ' . $4 . "\n";
+            my $sql =  'CREATE VIEW ' . $schemaname . '.' . $viewname . ' ' . $supplement . "\n";
             while (my $line_cont = read_and_clean($file))
             {
                 if ($line_cont =~ /^\s*'\s*$|^GO$/
@@ -1853,7 +1875,7 @@ EOF
             }
             $constraint->{TYPE}  = 'CHECK';
             $constxt =~
-                s/\[(\S+?)\]/$1/g; # We remove the []. And hope this will parse
+                s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
             $constraint->{TEXT} = $constxt;
             push @{$objects->{SCHEMAS}->{$schema}->{'TABLES'}->{$table}->{CONSTRAINTS}},
                 ($constraint);
