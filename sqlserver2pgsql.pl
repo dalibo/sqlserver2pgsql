@@ -446,7 +446,7 @@ sub format_identifier_cols_index
     return $formatted . ' ' . $order;
 }
 
-# This one will try to convert what can obviously be converted from transact to PG
+# This one will try to convert what can obviously be converted from transact to (or embedded WHERE in indexes for instance) PG
 # Things such as getdate() which can become CURRENT_TIMESTAMP 
 sub convert_transactsql_code
 {
@@ -1659,6 +1659,13 @@ EOF
                     next
                         ; # Nothing equivalent in PG. Maybe if the index isn't unique, these columns should be added?
                 }
+                if ($idx =~ /^WHERE\s*\((.*)\)$/)
+                {
+                    # This is a where clause. PostgreSQL has them too. But we cannot be sure this will be exactly the same. So if an index as a WHERE clause, it has to go to unsure
+                    my $filter=$1;
+                    $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                            ->{INDEXES}->{$idxname}->{WHERE}=$filter;
+                }
             }
         }
 	elsif ($line =~ /^CREATE SPATIAL INDEX/)
@@ -2320,8 +2327,18 @@ sub generate_schema
                     $idxdef .= " UNIQUE";
                 }
                 $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
-                    . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ");\n";
-                print AFTER $idxdef;
+                    . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ")";
+                if (not defined $idxref->{WHERE})
+                {
+                    $idxdef .= ";\n";
+                    print AFTER $idxdef;
+                }
+                else
+                {
+                    print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
+                    $idxdef .= "\nWHERE (" . $idxref->{WHERE} . ");\n";
+                    print UNSURE $idxdef;
+                }
             }
         }
     }    
