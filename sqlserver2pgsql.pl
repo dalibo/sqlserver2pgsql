@@ -1881,8 +1881,6 @@ EOF
                 $constraint->{NAME}  = $3;
             }
             $constraint->{TYPE}  = 'CHECK';
-            $constxt =~
-                s/\[(\S+)\]/$1/g; # We remove the []. And hope this will parse
             $constraint->{TEXT} = $constxt;
             push @{$objects->{SCHEMAS}->{$schema}->{'TABLES'}->{$table}->{CONSTRAINTS}},
                 ($constraint);
@@ -2401,7 +2399,7 @@ sub generate_schema
                 }
                 elsif ($constraint->{TYPE} eq 'CHECK')
                 {
-                    $consdef .= " CHECK (" . $constraint->{TEXT} . ");\n";
+                    $consdef .= " CHECK (" . convert_transactsql_code($constraint->{TEXT}) . ");\n";
                     print UNSURE $consdef
                         ;    # Check constraints are SQL, so cannot be sure
                 }
