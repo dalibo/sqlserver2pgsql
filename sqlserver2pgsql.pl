@@ -451,7 +451,7 @@ sub format_identifier_cols_index
 sub convert_transactsql_code
 {
 	my ($code)=@_;
-	$code =~ s/[\[\]]/\"/gi;
+	$code =~ s/[\[\]]//gi; # Bit brutal probably
 	$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
 	$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
 	$code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
@@ -2336,7 +2336,7 @@ sub generate_schema
                 else
                 {
                     print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
-                    $idxdef .= "\nWHERE (" . $idxref->{WHERE} . ");\n";
+                    $idxdef .= "\nWHERE (" . convert_transactsql_code($idxref->{WHERE}) . ");\n";
                     print UNSURE $idxdef;
                 }
             }
