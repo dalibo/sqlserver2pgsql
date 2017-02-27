@@ -3095,7 +3095,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <schema>__postgres_schema_name__</schema>
     <table>__postgres_table_name__</table>
     <commit>100</commit>
-    <truncate>Y</truncate>
+    <truncate>N</truncate>
     <ignore_errors>N</ignore_errors>
     <use_batch>Y</use_batch>
     <specify_fields>N</specify_fields>
@@ -3455,7 +3455,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <schema>__postgres_schema_name__</schema>
     <table>__postgres_table_name__</table>
     <commit>100</commit>
-    <truncate>Y</truncate>
+    <truncate>N</truncate>
     <ignore_errors>N</ignore_errors>
     <use_batch>Y</use_batch>
     <specify_fields>N</specify_fields>
