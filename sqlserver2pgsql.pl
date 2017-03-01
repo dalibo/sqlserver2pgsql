@@ -608,8 +608,8 @@ sub is_windows
 sub kettle_die
 {
     my ($file) = @_;
-    die
-        "You have to set up KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL=Y in $file.\nIf this file doesn't exist yet, start spoon from the kettle directory once.";
+    print STDERR
+        "Important WARNIN: You have to set up KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL=Y in $file.\nIf this file doesn't exist yet, start spoon from the kettle directory once.";
 }
 
 # This sub checks ~/.kettle/kettle.properties to be sure
