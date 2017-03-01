@@ -605,7 +605,7 @@ sub is_windows
 }
 
 # Die if kettle is not set up correctly
-sub kettle_die
+sub kettle_warn
 {
     my ($file) = @_;
     print STDERR
@@ -627,7 +627,11 @@ sub check_kettle_properties
     {
         $file = $ENV{'USERPROFILE'} . '/.kettle/kettle.properties';
     }
-    open FILE, $file or kettle_die($file);
+    unless (open FILE, $file )
+    {
+        kettle_warn($file);
+        return 1;
+    }
     while (<FILE>)
     {
         next unless (/^KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL=Y$/);
@@ -636,7 +640,8 @@ sub check_kettle_properties
     close FILE;
     if (not $ok)
     {
-        kettle_die($file);
+        kettle_warn($file);
+        return 1;
     }
     return 0;
 }
@@ -930,7 +935,7 @@ sub generate_kettle
             # The only difference between normal and incremental job is the filename of the transformation
             my $JOBFILEname;
             my $INCJOBFILEname;
-            if ($dir =~ /^(\\|\/)/)    # Absolute path
+            if ($dir =~ /^([A-Za-z]:\\|\/)/)    # Absolute path
             {
                 $JOBFILEname = $dir . '/' . $schema . '-' . $table . '.ktr';
                 $INCJOBFILEname = $dir . '/' . 'incremental-' . $schema . '-' . $table . '.ktr';
