@@ -483,7 +483,7 @@ sub convert_transactsql_code
 	}
 	else
 	{
-        $code =~ s/[\(.*)[\]]/rename_identifier($1)/gie; # Bit brutal probably
+        $code =~ s/\[(.*)\]/rename_identifier($1)/gie; # Bit brutal probably
     }
 	$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
 	$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
