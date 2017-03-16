@@ -40,7 +40,9 @@ our $kettle;
 our $before_file;
 our $after_file;
 our $unsure_file;
+our $case_treatment=1; # 1=convert to lowercase, 2=convert to snake_case, 0 do nothing
 our $keep_identifier_case;
+our $camel_to_snake;
 our $validate_constraints;
 our $parallelism;
 our $sort_size;
@@ -91,6 +93,7 @@ sub parse_conf_file
                       'convert numeric to int'   => 'convert_numeric_to_int',
                       'relabel schemas'          => 'relabel_schemas',
                       'keep identifier case'     => 'keep_identifier_case',
+                      'camelcasetosnake'         => 'camel_to_snake',
                       'validate constraints'     => 'validate_constraints',
                       'sort size'                => 'sort_size',
                       'use pk if possible'       => 'use_pk_if_possible',
@@ -130,7 +133,8 @@ sub set_default_conf_values
     $case_insensitive=0 unless (defined ($case_insensitive));
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
-    $keep_identifier_case=0 unless (defined ($keep_identifier_case));
+    $case_treatment=0 if (defined ($keep_identifier_case));
+    $case_treatment=2 if (defined ($camel_to_snake));
     $parallelism=8 unless (defined ($parallelism));
     $sort_size=10000 unless (defined ($sort_size));
     $use_pk_if_possible=0 unless (defined ($use_pk_if_possible));
@@ -388,6 +392,16 @@ sub postgres_convert_column
     }
 }
 
+# This is used to convert camelCase to snake_case. The latter is more usual with PostgreSQL
+
+sub camel_to_snake
+{
+    my ($string)=@_;
+    $string =~ s/([[:lower:]])([[:upper:]]+)/$1_\l$2/g;
+    $string=lc($string);
+    return $string;
+}
+
 # This function is used to determine if a PK will be sorted the same in SQL Server and PG
 # It means that it doesn't depend on collation orders or other internals.
 # For now, only numeric and date data types are considered OK
@@ -417,6 +431,20 @@ sub is_pk_sort_order_safe
         return $isok;
 }
 
+# This function renames the identifiers
+sub rename_identifier
+{
+    my ($identifier)=@_;
+    if ($case_treatment==1)
+    {
+        $identifier=lc($identifier);
+    }
+    elsif ($case_treatment==2)
+    {
+        $identifier=camel_to_snake($identifier);
+    }
+    return $identifier;
+}
 
 # This function formats the identifiers (object name), putting double quotes around it
 # It also converts case if asked
@@ -424,10 +452,8 @@ sub format_identifier
 {
     my ($identifier)=@_;
     croak "identifier not defined in format_identifier" unless (defined $identifier);
-    unless ($keep_identifier_case)
-    {
-        $identifier=lc($identifier);
-    }
+    $identifier=rename_identifier($identifier);
+
     # Now, we protect the identifier (similar to quote_ident in PG)
     $identifier=~ s/"/""/g;
     $identifier='"'.$identifier.'"';
@@ -451,13 +477,13 @@ sub format_identifier_cols_index
 sub convert_transactsql_code
 {
 	my ($code)=@_;
-	if ($keep_identifier_case)
+	if ($case_treatment==0)
 	{
 	    $code =~ s/[\[\]]/"/gi; # Bit brutal probably
 	}
 	else
 	{
-        $code =~ s/[\[\]]//gi; # Bit brutal probably
+        $code =~ s/[\(.*)[\]]/rename_identifier($1)/gie; # Bit brutal probably
     }
 	$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
 	$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
@@ -664,6 +690,8 @@ sub usage
     print "  -nr simply cancels the default dbo=>public remapping. Don't forget to put the remapping between quotes\n";
     print
         "-keep_identifier_case tells $0 to keep the case of sql server database objects (not advised). Default is to lowercase everything.\n";
+    print
+        "-camel_to_snake tells $0 to convert the object names from camelCase to camel_case, which is more often used in PostgreSQL.\nDon't use this unless you are ready to do changes in the client.\n";
     print "before_file contains the structure\n";
     print "after_file contains index, constraints\n";
     print "validate_constraints validates the constraints that have been created\n";
@@ -836,10 +864,7 @@ sub generate_kettle
 	      {
 		$sortkeys.="<field>\n<name>$pk</name>\n<ascending>Y</ascending>\n<case_sensitive>Y</case_sensitive>\n</field>\n";
                 my $outcol=$pk;
-                unless ($keep_identifier_case)
-                {
-                   $outcol=lc($outcol);
-                }
+                $outcol=rename_identifier($outcol);
                 $synckeys.="<key>\n<name>$pk</name>\n<field>$outcol</field>\n<condition>&#x3d;</condition>\n<name2/>\n</key>\n";
 
 	      }
@@ -858,9 +883,13 @@ sub generate_kettle
 		  $valuesmerge.="<value>$colname</value>\n";
                   # we need to use the correct case for postgresql output
                   my $outcol=$colname;
-                  unless ($keep_identifier_case)
+                  if ($case_treatment==1)
                   {
-                     $outcol=lc($outcol);
+                    $outcol=lc($outcol);
+                  }
+                  elsif ($case_treatment==2)
+                  {
+                    $outcol=camel_to_snake($outcol);
                   }
                   $valuessync.="<value>\n<name>$outcol</name>\n<rename>$colname</rename>\n<update>Y</update>\n</value>\n";
 #		}
@@ -2683,6 +2712,7 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "num"    => \$convert_numeric_to_int,
                          "relabel_schemas=s" => \$relabel_schemas,
                          "keep_identifier_case" =>\$keep_identifier_case,
+                         "camel_to_snake" => \$camel_to_snake,
                          "validate_constraints=s" =>\$validate_constraints,
                          "sort_size=i"            =>\$sort_size,
                          "use_pk_if_possible=s"   =>\$use_pk_if_possible,);

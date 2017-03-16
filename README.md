@@ -98,6 +98,8 @@ so the scale is often not important.
 
 `-keep_identifier_case`: don't convert the dump to all lower case. This is not recommended, as you'll have to put every identifier (column, table…) in double quotes…
 
+`-camel_to_snake`: convert the object name (table, column, index...) from CamelCase to snake_case. Only do this if you are willing to change all your queries (or you use an ORM for instance)
+
 `-validate_constraints=yes/after/no`: for foreign keys, if yes: foreign keys are created as valid in the after script (default)
                                                       if no: they are created as not valid (enforced only for new rows)
                                                       if after: they are created as not valid, but the statements to validate them are put in the unsure file
