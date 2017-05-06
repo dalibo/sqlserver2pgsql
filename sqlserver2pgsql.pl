@@ -1172,7 +1172,7 @@ sub add_column_to_table
 
         # We have an identity field. We remember the default value and
         # initialize the sequence correctly in the after script
-        $isidentity =~ /IDENTITY\((\d+),\s*(\d+)\)/
+        $isidentity =~ /IDENTITY\s*\((\d+),\s*(\d+)\)/
             or die "Cannot understand <$isidentity>";
         my $startseq = $1;
         my $stepseq  = $2;
@@ -1258,7 +1258,7 @@ sub parse_dump
     {
 
         # Create table, obviously. There will be other lines below for the rest of the table definition
-        if ($line =~ /^CREATE TABLE \[(.*)\]\.\[(.*)\]\(/)
+        if ($line =~ /^CREATE TABLE \[(.*)\]\.\[(.*)\]\s*\(/)
         {
             my $schemaname   = relabel_schemas($1);
             my $orig_schema = $1;
@@ -1273,7 +1273,7 @@ sub parse_dump
 		# (it makes it possible to do a select xxx WHERE $ROWGUID, without knowing the column name, typical microsoft stuff :( )
 		# To make matters even worse, they seem to systematically add a space after it :)
                 if ($line =~
-                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(?:SPARSE )?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
+                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\]\s*(\(.+?\))?(?: COLLATE (\S+))?( IDENTITY\s*\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(?:SPARSE )?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
                     )
                 {
                     #Deported into a function because we can also meet alter table add columns on their own
@@ -1281,9 +1281,10 @@ sub parse_dump
                     my $coltypeschema = $2;
                     my $coltype       = $3;
                     my $colqual        =$4;
-                    my $isidentity     =$5;
-                    my $colisnull      =$6;
-                    my $default        =$7;
+                    my $colcollate     =$5; # Ignore for now
+                    my $isidentity     =$6;
+                    my $colisnull      =$7;
+                    my $default        =$8;
                     add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
 	            if (defined $default)
 		    {
@@ -1644,7 +1645,7 @@ EOF
         }
 
         elsif ($line =~
-            /^CREATE (UNIQUE )?(NONCLUSTERED|CLUSTERED) INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/
+            /^\s*CREATE\s*(UNIQUE )?\s*(NONCLUSTERED|CLUSTERED)?\s*INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/
             )
         {
             # Index creation. Index are namespaced per table in SQL Server, not in PostgreSQL
