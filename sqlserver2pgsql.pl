@@ -2068,10 +2068,10 @@ EOF
 
         # Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
         # Also ignore version tests
-        elsif ($line =~ /^IF EXISTS|^IF \(\@\@microsoftversion/i)
+        elsif ($line =~ /^IF (NOT )?EXISTS|^IF \(\@\@microsoftversion/i)
         {
-			# just read until next go
-			while ($line !~ /^GO$/)
+			# just read until next go (or EOF)
+			while (defined $line and $line !~ /^GO$/)
 			{
 				$line =read_and_clean($file);
 			}
