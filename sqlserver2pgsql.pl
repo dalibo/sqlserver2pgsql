@@ -1710,16 +1710,16 @@ EOF
                 }
             }
         }
-	elsif ($line =~ /^CREATE SPATIAL INDEX/)
-	{
-		my $def=$line;
-		while (my $idx = read_and_clean($file))
+		elsif ($line =~ /^CREATE SPATIAL INDEX/)
 		{
-			$def.=$idx;
-		}
-		print STDERR "This spatial index won't be migrated:\n$def\n";
+			my $def=$line;
+			while (my $idx = read_and_clean($file))
+			{
+				$def.=$idx;
+			}
+			print STDERR "This spatial index won't be migrated:\n$def\n";
 
-	}
+		}
 
         # Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
         # PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
@@ -2025,6 +2025,7 @@ EOF
             }
         }
 
+
         # Ignore USE, GO, and things that have no meaning for postgresql
         elsif ($line =~
             /^USE\s|^GO\s*$|\/\*\*\*\*|^SET ANSI_NULLS (ON|OFF)|^SET QUOTED_IDENTIFIER|^SET ANSI_PADDING|CHECK CONSTRAINT|^BEGIN|^END/
@@ -2066,48 +2067,53 @@ EOF
         }
 
         # Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
-        elsif ($line =~ /^IF NOT EXISTS/)
+        # Also ignore version tests
+        elsif ($line =~ /^IF EXISTS|^IF \(\@\@microsoftversion/i)
         {
-            next;
+			# just read until next go
+			while ($line !~ /^GO$/)
+			{
+				$line =read_and_clean($file);
+			}
         }
 
         # Ignore CREATE DATABASE: we hope that we are given a single database as an option. It is multiline.
         # Ignore everything until next GO
         # Ignore ALTER DATABASE for the same reason. The given parameters have no meaning in PG anyway
-	# Except for SET ARITHABORT OFF, for which we print a warning because it probably means the database contents are weird (10/0 = null)
-	elsif ($line =~
-	       /^ALTER DATABASE.* SET ARITHABORT OFF/)
-	{
-	    print STDERR "WARNING: the source database is set as ARITHABORT OFF.\n";
-	    print STDERR "         It means that for SQL Server, 10/0 = NULL.\n";
-	    print STDERR "         You'll probably have problems porting that to PostgreSQL.\n";
-	    while ($line !~ /^GO$/)
-	    {
-		$line =read_and_clean($file);
-	    }
-            # We read everything in the CREATE DATABASE. Back to work !
-	    next;
-	}
-	# Sometimes, when there is a ALTER DATABASE SET ARITHABORT OFF, there are SET ARITHABORT ON. Just ignore them
-	elsif ($line =~ /^SET ARITHABORT ON/)
-	{
-		next;
-	}
-	# Sometimes we meet this: SET CONCAT_NULL_YIELDS_NULL ON. That's the normal behaviour for a SQL database. Just ignore
-	elsif ($line =~ /^SET CONCAT_NULL_YIELDS_NULL ON/)
-	{
-		next;
-	}
-	# Same more or less
-	elsif ($line =~ /^SET ANSI_WARNINGS ON/)
-	{
-		next;
-	}
-	# What the hell does this do in a dump ???
-	elsif ($line =~ /^SET NUMERIC_ROUNDABORT OFF/)
-	{
-		next;
-	}
+		# Except for SET ARITHABORT OFF, for which we print a warning because it probably means the database contents are weird (10/0 = null)
+		elsif ($line =~
+			/^ALTER DATABASE.* SET ARITHABORT OFF/)
+		{
+			print STDERR "WARNING: the source database is set as ARITHABORT OFF.\n";
+			print STDERR "         It means that for SQL Server, 10/0 = NULL.\n";
+			print STDERR "         You'll probably have problems porting that to PostgreSQL.\n";
+			while ($line !~ /^GO$/)
+			{
+				$line =read_and_clean($file);
+			}
+				# We read everything in the CREATE DATABASE. Back to work !
+			next;
+		}
+		# Sometimes, when there is a ALTER DATABASE SET ARITHABORT OFF, there are SET ARITHABORT ON. Just ignore them
+		elsif ($line =~ /^SET ARITHABORT ON/)
+		{
+			next;
+		}
+		# Sometimes we meet this: SET CONCAT_NULL_YIELDS_NULL ON. That's the normal behaviour for a SQL database. Just ignore
+		elsif ($line =~ /^SET CONCAT_NULL_YIELDS_NULL ON/)
+		{
+			next;
+		}
+		# Same more or less
+		elsif ($line =~ /^SET ANSI_WARNINGS ON/)
+		{
+			next;
+		}
+		# What the hell does this do in a dump ???
+		elsif ($line =~ /^SET NUMERIC_ROUNDABORT OFF/)
+		{
+			next;
+		}
 
         # Same for tests about full text search.
         elsif ($line =~
