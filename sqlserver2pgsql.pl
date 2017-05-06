@@ -1645,7 +1645,7 @@ EOF
         }
 
         elsif ($line =~
-            /^\s*CREATE\s*(UNIQUE )?\s*(NONCLUSTERED|CLUSTERED)?\s*INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\]/
+            /^\s*CREATE\s*(UNIQUE )?\s*(NONCLUSTERED|CLUSTERED)?\s*INDEX \[(.*?)\] ON \[(.*?)\]\.\[(.*?)\](\(\[.*?\]\))?/
             )
         {
             # Index creation. Index are namespaced per table in SQL Server, not in PostgreSQL
@@ -1658,6 +1658,7 @@ EOF
             my $idxname     = $3;
             my $schemaname  = relabel_schemas($4);
             my $tablename   = $5;
+            my $maybecols   = $6; # Some versions of sql server put column definitions on the first line
             if ($isunique)
             {
                 $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
@@ -1667,6 +1668,24 @@ EOF
             {
                 $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
                     ->{$idxname}->{UNIQUE} = 0;
+            }
+            if (defined $maybecols)
+            {
+				my @maybecols = split (',',$maybecols);
+				foreach my $coldef(@maybecols)
+				{
+					$coldef=~/\[(.*)\](?: (ASC|DESC))?/ or die "Cannot understand coldef $coldef in index";
+                    if (defined $2)
+                    {
+                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                                ->{INDEXES}->{$idxname}->{COLS}}, ("$1 $2");
+                    }
+                    else
+                    {
+                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                                ->{INDEXES}->{$idxname}->{COLS}}, ("$1");
+                    }
+				}
             }
             while (my $idx = read_and_clean($file))
             {
@@ -2068,7 +2087,7 @@ EOF
 
         # Ignore existence tests… how could the object already exist anyway ? For now, only seen for views
         # Also ignore version tests
-        elsif ($line =~ /^IF (NOT )?EXISTS|^IF \(\@\@microsoftversion/i)
+        elsif ($line =~ /^IF EXISTS|^IF \(\@\@microsoftversion/i)
         {
 			# just read until next go (or EOF)
 			while (defined $line and $line !~ /^GO$/)
@@ -2076,6 +2095,13 @@ EOF
 				$line =read_and_clean($file);
 			}
         }
+        elsif ($line =~ /^IF NOT EXISTS/i)
+        {
+			# Just ignore the line
+			next;
+
+        }
+
 
         # Ignore CREATE DATABASE: we hope that we are given a single database as an option. It is multiline.
         # Ignore everything until next GO
