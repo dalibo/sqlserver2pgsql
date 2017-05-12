@@ -802,7 +802,7 @@ sub generate_kettle
             my $pgschema=format_identifier($targetschema);
 
             my $sqlinstancename = '';
-            if (length $si) {
+            if (defined $si) {
                 $sqlinstancename = $si;
             }
 
