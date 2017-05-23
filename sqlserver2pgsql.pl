@@ -135,7 +135,7 @@ sub set_default_conf_values
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
     $case_treatment=0 if (defined ($keep_identifier_case));
     $case_treatment=2 if (defined ($camel_to_snake));
-    $parallelism=8 unless (defined ($parallelism));
+    $parallelism=4 unless (defined ($parallelism));# the MS jdbc driver errors when there are more than 5 sessions
     $sort_size=10000 unless (defined ($sort_size));
     $use_pk_if_possible=0 unless (defined ($use_pk_if_possible));
     $validate_constraints='yes' unless (defined ($validate_constraints));
