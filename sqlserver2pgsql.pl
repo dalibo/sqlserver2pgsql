@@ -41,6 +41,7 @@ our $before_file;
 our $after_file;
 our $unsure_file;
 our $case_treatment=1; # 1=convert to lowercase, 2=convert to snake_case, 0 do nothing
+our $ignore_errors;
 our $keep_identifier_case;
 our $camel_to_snake;
 our $validate_constraints;
@@ -97,6 +98,7 @@ sub parse_conf_file
                       'validate constraints'     => 'validate_constraints',
                       'sort size'                => 'sort_size',
                       'use pk if possible'       => 'use_pk_if_possible',
+                      'ignore errors'            => 'ignore_errors',
                      );
 
     # Open the conf file or die
@@ -139,6 +141,7 @@ sub set_default_conf_values
     $sort_size=10000 unless (defined ($sort_size));
     $use_pk_if_possible=0 unless (defined ($use_pk_if_possible));
     $validate_constraints='yes' unless (defined ($validate_constraints));
+    $ignore_errors=0 unless (defined ($ignore_errors));
     # Default ports for PostgreSQL and SQL Server
     $pp=5432 unless (defined ($pp));
     $sp=1433 unless (defined ($sp));
@@ -717,6 +720,8 @@ sub usage
     print "-pu: postgresql username\n";
     print "-pw: postgresql password\n";
     print "-p: parallelism level for the kettle job\n";
+    print "You may also choose to ignore insert errors (inserting will be much slower)\n";
+    print "-ignore_errors\n";
 }
 
 # This function generates kettle transformations, and a kettle job running all these
@@ -825,6 +830,12 @@ sub generate_kettle
             $newtemplate =~ s/__postgres_table_name__/$pgtable/g;
             $newtemplate =~ s/__postgres_schema_name__/$pgschema/g;
             $newtemplate =~ s/__PARALLELISM__/$parallelism/g;
+
+            if ($ignore_errors)
+            {
+                $newtemplate =~ s/<ignore_errors>N<\/ignore_errors>/<ignore_errors>Y<\/ignore_errors>/g;
+                $newtemplate =~ s/<use_batch>Y<\/use_batch>/<use_batch>N<\/use_batch>/g; # Cannot use batch mode with ignore errors
+            }
 
 
             $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
@@ -2749,7 +2760,8 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "camel_to_snake" => \$camel_to_snake,
                          "validate_constraints=s" =>\$validate_constraints,
                          "sort_size=i"            =>\$sort_size,
-                         "use_pk_if_possible=s"   =>\$use_pk_if_possible,);
+                         "use_pk_if_possible=s"   =>\$use_pk_if_possible,
+                         "ignore_errors"          => \$ignore_errors);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)

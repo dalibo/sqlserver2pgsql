@@ -32,3 +32,6 @@ validate constraints = yes # yes, after or no, should the constraints be validat
 # Incremental job
 sort size=10000 # drives the amount of memory and temporary files that will be created by an incremental job
 use pk if possible=0 # 1/list of tables, for tables where you want to try getting already sorted records
+
+# Ignore errors ? (will be slower, and you'll have to read the migration job's log throroughly). Ignored for incremental jobs
+ignore errors=0

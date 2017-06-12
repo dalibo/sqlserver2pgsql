@@ -130,7 +130,7 @@ cleartext, so don't make this directory public):
 `-pu` : postgresql username
 `-pw` : postgresql password
 `-f`  : the SQL Server structure dump file
-
+-ignore_errors : ignore insert errors (not advised, you'll need to examine kettle's logs, and it will be slower)
 
 `-p`  : The parallelism used in kettle jobs: there will be this amount of sessions used to insert into PostgreSQL. Default to 8
 `-sort_size=100000`: sort size to use for incremental jobs. Default is 10000, to try to be on the safe side (see below).
