@@ -45,7 +45,8 @@ our $ignore_errors;
 our $keep_identifier_case;
 our $camel_to_snake;
 our $validate_constraints;
-our $parallelism;
+our $parallelism_in;
+our $parallelism_out;
 our $sort_size;
 our $use_pk_if_possible;
 
@@ -84,7 +85,8 @@ sub parse_conf_file
                       'postgresql username'      => 'pu',
                       'postgresql password'      => 'pw',
                       'kettle directory'         => 'kettle',
-                      'parallelism'              => 'parallelism',
+                      'parallelism_in'              => 'parallelism_in',
+                      'parallelism_out'              => 'parallelism_out',
                       'before file'              => 'before_file',
                       'after file'               => 'after_file',
                       'unsure file'              => 'unsure_file',
@@ -137,7 +139,8 @@ sub set_default_conf_values
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
     $case_treatment=0 if (defined ($keep_identifier_case));
     $case_treatment=2 if (defined ($camel_to_snake));
-    $parallelism=4 unless (defined ($parallelism));# the MS jdbc driver errors when there are more than 5 sessions
+    $parallelism_in=1 unless (defined ($parallelism_in));# the jdbc driver often errors when there are several sessions to sql server
+    $parallelism_out=8 unless (defined ($parallelism_out));
     $sort_size=10000 unless (defined ($sort_size));
     $use_pk_if_possible=0 unless (defined ($use_pk_if_possible));
     $validate_constraints='yes' unless (defined ($validate_constraints));
@@ -719,7 +722,8 @@ sub usage
     print "-pp: postgresql port\n";
     print "-pu: postgresql username\n";
     print "-pw: postgresql password\n";
-    print "-p: parallelism level for the kettle job\n";
+    print "-pi: parallelism level for the kettle job (input, sql server)\n";
+    print "-po: parallelism level for the kettle job (output, postgresql)\n";
     print "You may also choose to ignore insert errors (inserting will be much slower)\n";
     print "-ignore_errors\n";
 }
@@ -829,7 +833,8 @@ sub generate_kettle
             $newtemplate =~ s/__sqlserver_table_cols__/$colsdef/g;
             $newtemplate =~ s/__postgres_table_name__/$pgtable/g;
             $newtemplate =~ s/__postgres_schema_name__/$pgschema/g;
-            $newtemplate =~ s/__PARALLELISM__/$parallelism/g;
+            $newtemplate =~ s/__PARALLELISM_IN__/$parallelism_in/g;
+            $newtemplate =~ s/__PARALLELISM_OUT__/$parallelism_out/g;
 
             if ($ignore_errors)
             {
@@ -855,7 +860,8 @@ sub generate_kettle
             $newincrementaltemplate =~ s/__postgres_table_name__/$pgtable/g;
             $newincrementaltemplate =~ s/__postgres_schema_name__/$pgschema/g;
             $newincrementaltemplate =~ s/__postgres_table_cols__/$pgcolsdef/g;
-            $newincrementaltemplate =~ s/__PARALLELISM__/$parallelism/g;
+            $newincrementaltemplate =~ s/__PARALLELISM_IN__/$parallelism_in/g;
+            $newincrementaltemplate =~ s/__PARALLELISM_OUT__/$parallelism_out/g;
             $newincrementaltemplate =~ s/__sort_size__/$sort_size/g;
 
             # We have a bit of work to do on primary keys for the incremental template: we need them
@@ -2734,7 +2740,8 @@ sub resolve_name_conflicts
 my $help = 0;
 
 my $options = GetOptions("k=s"    => \$kettle,
-                         "p=i"    => \$parallelism,
+                         "pi=i"    => \$parallelism_in,
+                         "po=i"    => \$parallelism_out,
                          "b=s"    => \$before_file,
                          "a=s"    => \$after_file,
                          "u=s"    => \$unsure_file,
@@ -2928,6 +2935,7 @@ BEGIN
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_POSTGRESQL.reWriteBatchedInserts</code><attribute>true</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -3055,7 +3063,7 @@ BEGIN
     <type>UserDefinedJavaClass</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -3167,7 +3175,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>TableOutput</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -3290,6 +3298,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_POSTGRESQL.reWriteBatchedInserts</code><attribute>true</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -3416,7 +3425,7 @@ EOF
     <type>UserDefinedJavaClass</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -3502,7 +3511,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>TableInput</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_IN__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -3527,7 +3536,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>TableOutput</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -3899,7 +3908,7 @@ EOF
     <type>UserDefinedJavaClass</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -4010,7 +4019,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>SortRows</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -4038,7 +4047,7 @@ __SORT_KEYS_PG__
     <type>SortRows</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -4108,7 +4117,7 @@ __SORT_KEYS_SQLSERVER__
     <type>SynchronizeAfterMerge</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>
@@ -4439,7 +4448,7 @@ public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws K
     <type>SynchronizeAfterMerge</type>
     <description/>
     <distribute>Y</distribute>
-    <copies>__PARALLELISM__</copies>
+    <copies>__PARALLELISM_OUT__</copies>
          <partitioning>
            <method>none</method>
            <schema_name/>

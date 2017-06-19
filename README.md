@@ -132,7 +132,8 @@ cleartext, so don't make this directory public):
 `-f`  : the SQL Server structure dump file
 -ignore_errors : ignore insert errors (not advised, you'll need to examine kettle's logs, and it will be slower)
 
-`-p`  : The parallelism used in kettle jobs: there will be this amount of sessions used to insert into PostgreSQL. Default to 8
+`-pi`  : The parallelism used in kettle jobs to read from SQL Server (1 by default, the jdbc driver frequently errors out when larger)
+`-po`  : The parallelism used in kettle jobs to write to PostgresSQL: there will be this amount of sessions used to insert into PostgreSQL. Default to 8
 `-sort_size=100000`: sort size to use for incremental jobs. Default is 10000, to try to be on the safe side (see below).
 
 We don't sort in databases for two reasons: the sort order (collation for strings for example) can be different between SQL Server

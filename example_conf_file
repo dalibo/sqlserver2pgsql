@@ -19,7 +19,8 @@ postgresql host=bar_host
 postgresql port=5432
 postgresql username=bar_user
 postgresql password=bar_password
-parallelism=8 # Default value is 8. Number of parallel connections used by kettle to insert data into the PostgreSQL database
+parallelism_in=8 # Parallelism reading from SQL Server (where available) Default value is 1
+parallelism_out=8 # Default value is 8. Number of parallel connections used by kettle to insert data into the PostgreSQL database
 
 # Optional behaviour
 case insensitive=0 # set it to 1 to generate a dump with citext and check constraints all over the place
