@@ -1535,7 +1535,7 @@ EOF
                 next MAIN if ($contline eq '');
             }
         }
-	
+
         # Now we parse the create view. It is multi-line, so the code looks like like create table: we parse everything until a line
         # containing only a single quote (end of the dbo.sp_executesql)
         # The problem is that SQL Server seems to be spitting the original query used to create the view, not a normalized version
@@ -2040,6 +2040,18 @@ EOF
                     $objects->{SCHEMAS}->{$schema}->{TABLES}->{$objname}->{COLS}
                         ->{$subobjname}->{COMMENT} = $comment;
                 }
+                elsif ($obj eq 'TABLE' and $subobj eq 'CONSTRAINT')
+                {
+                    # It's a bit tedious: constraints are stored in an array for each table
+                    # Find the one
+                    foreach my $constraint (@{$objects->{SCHEMAS}->{$schema}->{TABLES}->{$objname}->{CONSTRAINTS}})
+                    {
+                        if (defined ($constraint->{NAME}) and $constraint->{NAME} eq $subobjname)
+                        {
+                            $constraint->{COMMENT}=$comment;
+                        }
+                    }
+                }
                 else
                 {
                     croak "Cannot understand this comment: $sqlproperty";
@@ -2520,6 +2532,23 @@ sub generate_schema
                 }
             }
         }
+    }
+    # Another pass at constraints. This time we want to produce the comments
+    while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
+    {
+
+        # We have all we need for FKs now. We can put all other constraints (except PK of course)
+        foreach my $table (sort keys %{$refschema->{TABLES}})
+        {
+            foreach my $constraint (
+                             @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
+            {
+		    next unless defined ($constraint->{COMMENT});
+                    print UNSURE "COMMENT ON CONSTRAINT "  . format_identifier($constraint->{NAME}) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " IS '"
+                    . $constraint->{COMMENT} . "';\n";
+
+	    }
+	}
     }
 
     # Default values
