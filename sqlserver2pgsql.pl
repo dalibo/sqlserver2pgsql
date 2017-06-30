@@ -1525,7 +1525,17 @@ EOF
                 next MAIN if ($contline =~ /^GO$/);
             }
         }
+        elsif ($line =~ /SET\s+IDENTITY_INSERT\s+\[(.*)\]/i)
+        {
+            print STDERR "Warning: SET IDENTITY_INSERT ignored\n";
 
+            # We have to find next GO to know we are out of the procedure
+            while (my $contline = read_and_clean($file))
+            {
+                next MAIN if ($contline eq '');
+            }
+        }
+	
         # Now we parse the create view. It is multi-line, so the code looks like like create table: we parse everything until a line
         # containing only a single quote (end of the dbo.sp_executesql)
         # The problem is that SQL Server seems to be spitting the original query used to create the view, not a normalized version
