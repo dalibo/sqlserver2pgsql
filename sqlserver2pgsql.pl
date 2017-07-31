@@ -49,6 +49,7 @@ our $parallelism_in;
 our $parallelism_out;
 our $sort_size;
 our $use_pk_if_possible;
+our $pforce_ssl;
 
 # Will be set if we detect GIS objects
 our $requires_postgis=0;
@@ -101,6 +102,7 @@ sub parse_conf_file
                       'sort size'                => 'sort_size',
                       'use pk if possible'       => 'use_pk_if_possible',
                       'ignore errors'            => 'ignore_errors',
+		      'postgresql force ssl'                => 'pforce_ssl',
                      );
 
     # Open the conf file or die
@@ -148,6 +150,7 @@ sub set_default_conf_values
     # Default ports for PostgreSQL and SQL Server
     $pp=5432 unless (defined ($pp));
     $sp=1433 unless (defined ($sp));
+    $pforce_ssl=0 unless (defined ($pforce_ssl));
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -724,6 +727,7 @@ sub usage
     print "-pw: postgresql password\n";
     print "-pi: parallelism level for the kettle job (input, sql server)\n";
     print "-po: parallelism level for the kettle job (output, postgresql)\n";
+    print "-pforce_ssl: force a SSL session to PostgreSQL\n";
     print "You may also choose to ignore insert errors (inserting will be much slower)\n";
     print "-ignore_errors\n";
 }
@@ -842,6 +846,15 @@ sub generate_kettle
                 $newtemplate =~ s/<use_batch>Y<\/use_batch>/<use_batch>N<\/use_batch>/g; # Cannot use batch mode with ignore errors
             }
 
+	    if ($pforce_ssl)
+	    {
+		    $newtemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
+	    }
+	    else
+	    {
+		    $newtemplate =~ s/__pforce_ssl__//g;
+	    }
+
 
             $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
             $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
@@ -864,7 +877,15 @@ sub generate_kettle
             $newincrementaltemplate =~ s/__PARALLELISM_OUT__/$parallelism_out/g;
             $newincrementaltemplate =~ s/__sort_size__/$sort_size/g;
 
-            # We have a bit of work to do on primary keys for the incremental template: we need them
+            if ($pforce_ssl)
+	    {
+		    $newincrementaltemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
+	    }
+	    else
+	    {
+		    $newincrementaltemplate =~ s/__pforce_ssl__//g;
+	    }
+# We have a bit of work to do on primary keys for the incremental template: we need them
             # to compare the tables…
             if (defined($refschema->{TABLES}->{$table}->{PK}->{COLS}))
             {
@@ -2807,7 +2828,8 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "validate_constraints=s" =>\$validate_constraints,
                          "sort_size=i"            =>\$sort_size,
                          "use_pk_if_possible=s"   =>\$use_pk_if_possible,
-                         "ignore_errors"          => \$ignore_errors);
+                         "ignore_errors"          => \$ignore_errors,
+			 "pforce_ssl"		  => \$pforce_ssl);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)
@@ -2975,6 +2997,7 @@ BEGIN
     <index_tablespace/>
     <attributes>
       <attribute><code>EXTRA_OPTION_POSTGRESQL.reWriteBatchedInserts</code><attribute>true</attribute></attribute>
+      __pforce_ssl__
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -2999,6 +3022,7 @@ BEGIN
     <index_tablespace/>
     <attributes>
       <attribute><code>EXTRA_OPTION_POSTGRESQL.reWriteBatchedInserts</code><attribute>true</attribute></attribute>
+      __pforce_ssl__
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -3335,6 +3359,7 @@ EOF
     <index_tablespace/>
     <attributes>
       <attribute><code>EXTRA_OPTION_POSTGRESQL.reWriteBatchedInserts</code><attribute>true</attribute></attribute>
+      __pforce_ssl__
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
