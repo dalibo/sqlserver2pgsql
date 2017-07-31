@@ -129,6 +129,7 @@ cleartext, so don't make this directory public):
 `-pp` : postgresql port
 `-pu` : postgresql username
 `-pw` : postgresql password
+`-pforce_ssl` : force a SSL connection to your PostgreSQL database. ssl=on should be set on the PostgreSQL server
 `-f`  : the SQL Server structure dump file
 -ignore_errors : ignore insert errors (not advised, you'll need to examine kettle's logs, and it will be slower)
 
