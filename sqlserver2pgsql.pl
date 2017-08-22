@@ -1091,7 +1091,8 @@ sub generate_kettle
                            keys %{$refschema->{TABLES}})
         {
             $beforescript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " DISABLE TRIGGER ALL;\n";
-            $afterscript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ENABLE TRIGGER ALL;\n";
+
+    $afterscript.= "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ENABLE TRIGGER ALL;\n";
         }
     }
 
@@ -1104,6 +1105,14 @@ sub generate_kettle
     $job_header =~ s/__postgres_port__/$pp/g;
     $job_header =~ s/__postgres_username__/$pu/g;
     $job_header =~ s/__postgres_password__/$pw/g;
+    if ($pforce_ssl)
+    {
+        $job_header =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
+    }
+    else
+    {
+        $job_header =~ s/__pforce_ssl__//g;
+    }
 
     print JOBFILE $job_header;
     print JOBFILE $entries;
