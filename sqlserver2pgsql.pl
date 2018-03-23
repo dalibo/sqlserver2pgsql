@@ -1973,10 +1973,10 @@ EOF
                 {
                     $constraint->{ON_UPD_CASC} = 1;
                 }
-		elsif ($fk =~ /^NOT FOR REPLICATION$/)
-		{
-			next; # We don't care for this, it has no meaning for PostgreSQL
-		}
+		        elsif ($fk =~ /^NOT FOR REPLICATION\s*$/)
+		        {
+			        next; # We don't care for this, it has no meaning for PostgreSQL
+		        }
                 else
                 {
                     croak "Cannot parse $fk $., in a FK. This is a bug";
