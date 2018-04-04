@@ -1839,7 +1839,7 @@ EOF
         # Table constraints
         # Primary key. Multiline
         elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[(.*)\])? PRIMARY KEY (?:CLUSTERED|NONCLUSTERED)?/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+(?:WITH (?:NO)?CHECK )?ADD\s*(?:CONSTRAINT \[(.*)\])? PRIMARY KEY (?:CLUSTERED|NONCLUSTERED)?/
             )
         {
             my $schemaname=relabel_schemas($1);
@@ -1849,13 +1849,12 @@ EOF
             if (defined $3)
             {
                 $constraint->{NAME} = $3;
-            }
-
+	     }
 
             CONS: while (my $consline= read_and_clean($file))
             {
                 next if ($consline =~ /^\($/);
-                if ($consline =~ /^\t\[(.*)\] ASC,?$/)
+                if ($consline =~ /^\t\[(.*)\](?:ASC)?,?$/)
                 {
                     push @{$constraint->{COLS}}, ($1);
                 }
