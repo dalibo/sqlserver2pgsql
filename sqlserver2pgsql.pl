@@ -445,6 +445,7 @@ sub is_pk_sort_order_safe
 sub rename_identifier
 {
     my ($identifier)=@_;
+
     if ($case_treatment==1)
     {
         $identifier=lc($identifier);
@@ -483,21 +484,36 @@ sub format_identifier_cols_index
 }
 
 # This one will try to convert what can obviously be converted from transact to (or embedded WHERE in indexes for instance) PG
+# We check if we have several blocks separated by logical operators
 # Things such as getdate() which can become CURRENT_TIMESTAMP
 sub convert_transactsql_code
 {
 	my ($code)=@_;
-	if ($case_treatment==0)
-	{
-	    $code =~ s/[\[\]]/"/gi; # Bit brutal probably
+	# print STDERR "convert: $code\n";
+
+	if ($code =~ /^\((.*)\)\s+(AND|OR)\s+\((.*)\)$/) {
+	   my ($lhs,$op,$rhs)=($1,$2,$3);
+	   $code = "(".convert_transactsql_code("$lhs").") $op (".convert_transactsql_code("$rhs").")";
 	}
-	else
-	{
-        $code =~ s/\[(.*)\]/rename_identifier($1)/gie; # Bit brutal probably
-    }
-	$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
-	$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
-	$code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
+	elsif ($code =~ /^(.*)\s+(AND|OR)\s+(.*)$/) {
+	   my ($lhs,$op,$rhs)=($1,$2,$3);
+	   $code = convert_transactsql_code("$lhs")." $op ".convert_transactsql_code("$rhs");
+	}
+	else {
+		if ($case_treatment==0)
+		{
+		    $code =~ s/[\[\]]/"/gi; # Bit brutal probably
+		}
+		else
+		{
+		   $code =~ s/\[(.*)\]/rename_identifier($1)/gie; # Bit brutal probably
+		}
+		$code =~ s/ISNULL\s*\(/COALESCE(/gi;
+		$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
+		$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
+		$code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
+	}
+	# print STDERR "to: $code\n\n";
 	return $code;
 }
 
@@ -1924,7 +1940,7 @@ EOF
         # FK constraint. It's multi line, we have to look for references, and what to do on update, delete, etc (I have only seen delete cascade for now)
         # Constraint name is optionnal
         elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD(?:\s+CONSTRAINT \[(.*)\])? FOREIGN KEY\((.*?)\)/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK(?: NOT FOR REPLICATION)?\s+ADD(?:\s+CONSTRAINT \[(.*)\])? FOREIGN KEY\((.*?)\)/
             )
         {
             # This is a FK definition. We have the foreign table definition in next line.
@@ -1973,10 +1989,10 @@ EOF
                 {
                     $constraint->{ON_UPD_CASC} = 1;
                 }
-		        elsif ($fk =~ /^NOT FOR REPLICATION\s*$/)
-		        {
-			        next; # We don't care for this, it has no meaning for PostgreSQL
-		        }
+                elsif ($fk =~ /^NOT FOR REPLICATION\s*$/)
+                {
+                  next; # We don't care for this, it has no meaning for PostgreSQL
+                }
                 else
                 {
                     croak "Cannot parse $fk $., in a FK. This is a bug";
@@ -1986,7 +2002,7 @@ EOF
 
         # Check constraint. As it can be arbitrary code, we just get this code, and hope it will work on PG (it will be stored in a special script file)
         elsif ($line =~
-            /ALTER TABLE \[(.*)\]\.\[(.*)\]  WITH (?:NO)?CHECK ADD(?:\s+CONSTRAINT \[(.*)\])? CHECK  \(\((.*)\)\)/
+            /ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD(?:\s+CONSTRAINT \[(.*)\])? CHECK(?: NOT FOR REPLICATION)?\s+\(\((.*)\)\)/
             )
         {
             # Check constraint. We'll do what we can, syntax may be different.
@@ -2031,7 +2047,7 @@ EOF
                 or croak
                 "Cannot find a name for this extended property: $sqlproperty";
             my $propertyname = $1;
-            if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1|Display Name|Description|Example Values|Source System|Table Description|Table Type|ETL Rules|Display Folder|SCD  Type|Source Datatype)$/)
+            if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1|MS_DiagramPane2|Display Name|Description|Example Values|Source System|Table Description|Table Type|ETL Rules|Display Folder|SCD  Type|Source Datatype)$/)
             {
                 # We don't dump these. They are graphical descriptions of the GUI
                 next;
