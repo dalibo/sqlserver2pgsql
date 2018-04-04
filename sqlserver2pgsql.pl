@@ -1989,10 +1989,10 @@ EOF
                 {
                     $constraint->{ON_UPD_CASC} = 1;
                 }
-		elsif ($fk =~ /^NOT FOR REPLICATION\s*$/)
-		{
-			next; # We don't care for this, it has no meaning for PostgreSQL
-		}
+                elsif ($fk =~ /^NOT FOR REPLICATION\s*$/)
+                {
+                  next; # We don't care for this, it has no meaning for PostgreSQL
+                }
                 else
                 {
                     croak "Cannot parse $fk $., in a FK. This is a bug";
@@ -3021,6 +3021,7 @@ BEGIN
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -3381,6 +3382,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -3946,6 +3948,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
@@ -4374,6 +4377,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>IS_CLUSTERED</code><attribute>N</attribute></attribute>
