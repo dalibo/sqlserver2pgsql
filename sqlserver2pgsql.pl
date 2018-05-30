@@ -2052,7 +2052,7 @@ EOF
                 next;
             }
 
-            elsif ($propertyname eq 'MS_Description')
+            elsif ($propertyname =~ /^(MS_Description|MS_SSMA_SOURCE)$/)
             {
 
                 # This is a comment. We parse it.
