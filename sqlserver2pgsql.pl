@@ -2096,6 +2096,11 @@ EOF
                             $constraint->{COMMENT}=$comment;
                         }
                     }
+                 }
+                elsif ($obj eq 'TABLE' and $subobj eq 'INDEX')
+                {
+                   $objects->{SCHEMAS}->{$schema}->{TABLES}->{$objname}->{INDEXES}
+                      ->{$subobjname}->{COMMENT} = $comment;
                 }
                 else
                 {
@@ -2473,9 +2478,11 @@ sub generate_schema
         # They don't have a schema qualifier. But their table has, and they are in the same schema as their table
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
-            foreach my $index (
-                       sort keys %{$refschema->{TABLES}->{$table}->{INDEXES}})
+            foreach
+                my $index (
+                   sort keys %{$refschema->{TABLES}->{$table}->{INDEXES}})
             {
+                my $index_created = 0;
                 my $idxref =
                     $refschema->{TABLES}->{$table}->{INDEXES}->{$index};
                 my $idxdef = "CREATE";
@@ -2483,22 +2490,44 @@ sub generate_schema
                 {
                     $idxdef .= " UNIQUE";
                 }
-                $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
-                    . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ")";
-                if (not defined $idxref->{WHERE})
+                if (defined $idxref->{COLS})
                 {
-                    $idxdef .= ";\n";
-                    print AFTER $idxdef;
+                   $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
+                     . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ")";
+                   if (not defined $idxref->{WHERE})
+                   {
+                       $idxdef .= ";\n";
+                       print AFTER $idxdef;
+                      # the possible comment would go to after file
+                      $index_created = 1;
+                   }
+                   else
+                   {
+                       print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
+                       $idxdef .= "\nWHERE (" . convert_transactsql_code($idxref->{WHERE}) . ");\n";
+                       print UNSURE $idxdef;
+                      # the possible comment would go to unsure file
+                      $index_created = 2;
+                    }
+                   
+                    # Produce the comments for indexes
+                    if (defined $idxref->{COMMENT})
+                    {
+                       my $idxcomment = "COMMENT ON INDEX ". format_identifier($schema) . '.' . format_identifier($index) . " IS '" . $idxref->{COMMENT} . "';\n";
+                       if ($index_created == 1)
+                       {
+                          print AFTER $idxcomment;
+                       }
+                       elsif ($index_created == 2)
+                       {
+                          print UNSURE $idxcomment;
+                       }
+                    }
+
                 }
-                else
-                {
-                    print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
-                    $idxdef .= "\nWHERE (" . convert_transactsql_code($idxref->{WHERE}) . ");\n";
-                    print UNSURE $idxdef;
-                }
-            }
-        }
-    }
+             }
+         }
+     }
     # Other constraints
     while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
@@ -2634,7 +2663,6 @@ sub generate_schema
             print AFTER "select setval('" . format_identifier($schema) . '.' . format_identifier($sequence) . "',(select max(". format_identifier($seqref->{OWNERCOL}) .") from " . format_identifier($seqref->{OWNERSCHEMA}) . '.'. format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
         }
     }
-
 
     # Comments on tables and columns
     while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})

@@ -22,6 +22,35 @@ CREATE TABLE [dbo].[ACCOUNT](
 ) ON [PRIMARY]
 
 
-
 EXEC sys.sp_addextendedproperty @name=N'MS_SSMA_SOURCE', @value=N'ONEBANK.ACCOUNT.ID' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ACCOUNT', @level2type=N'COLUMN',@level2name=N'ID'
+GO
+
+
+CREATE NONCLUSTERED INDEX [IDX_ACCOUNT_ID] ON [dbo].[ACCOUNT]
+(
+	[ID] ASC
+)
+GO
+EXEC sys.sp_addextendedproperty @name=N'MS_SSMA_SOURCE', @value=N'ONEBANK.ACCOUNT.ID' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ACCOUNT', @level2type=N'INDEX',@level2name=N'IDX_ACCOUNT_ID'
+GO
+
+CREATE NONCLUSTERED INDEX [IDX_ACCOUNT_VERSION] ON [dbo].[ACCOUNT]
+(
+	[VERSION] ASC
+)
+WHERE ((ISNULL([VERSION], 0) > 1))
+GO
+EXEC sys.sp_addextendedproperty @name=N'MS_SSMA_SOURCE', @value=N'ONEBANK.ACCOUNT.VERSION' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ACCOUNT', @level2type=N'INDEX',@level2name=N'IDX_ACCOUNT_VERSION'
+GO
+
+CREATE TABLE [dbo].[ACCOUNT_CATEGORY](
+	[ID] [char](36) NOT NULL,
+	[VERSION] [numeric](10, 0) NOT NULL,
+ CONSTRAINT [SYS_C0010844] PRIMARY KEY CLUSTERED 
+(
+	[ID] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+EXEC sys.sp_addextendedproperty @name=N'MS_SSMA_SOURCE', @value=N'ONEBANK.ACCOUNT_CATEGORY.UQ_INDEX' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ACCOUNT_CATEGORY', @level2type=N'INDEX',@level2name=N'UQ_INDEX'
 GO
