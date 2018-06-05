@@ -1854,7 +1854,7 @@ EOF
             CONS: while (my $consline= read_and_clean($file))
             {
                 next if ($consline =~ /^\($/);
-                if ($consline =~ /^\t\[(.*)\](?:ASC)?,?$/)
+                if ($consline =~ /^\t\[(.*)\] (?:ASC)?,?$/)
                 {
                     push @{$constraint->{COLS}}, ($1);
                 }
