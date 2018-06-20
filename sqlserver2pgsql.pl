@@ -392,13 +392,13 @@ sub postgres_convert_column
         'timestamp with time zone' => 'to_char({colname} AT TIME ZONE \'UTC\', \'YYYY-MM-DD HH:MI:SS.US+00\')');
     if (defined ($functions{$coltype}))
     {
-	my $tmpcol = $functions{$coltype};
-	$tmpcol =~ s/\{colname\}/"$colname"/;
+		my $tmpcol = $functions{$coltype};
+		$tmpcol =~ s/\{colname\}/$colname/;
         return $tmpcol;
     }
     else
     {
-        return "\"$colname\"";
+        return $colname;
     }
 }
 
@@ -821,7 +821,7 @@ sub generate_kettle
 
             {
                 my $coldef = sql_convert_column($col,$refschema->{TABLES}->{$table}->{COLS}->{$col}->{TYPE}) . " AS " . format_identifier($col);
-                my $pgcoldef = postgres_convert_column($col,$refschema->{TABLES}->{$table}->{COLS}->{$col}->{TYPE}) . " AS " . format_identifier($col);
+                my $pgcoldef = postgres_convert_column(format_identifier($col),$refschema->{TABLES}->{$table}->{COLS}->{$col}->{TYPE}) . " AS " . format_identifier($col);
                 push @colsdef,($coldef);
                 push @pgcolsdef,($pgcoldef);
             }
