@@ -906,7 +906,7 @@ sub generate_kettle
             if (defined($refschema->{TABLES}->{$table}->{PK}->{COLS}))
             {
 	      my @pk=@{$refschema->{TABLES}->{$table}->{PK}->{COLS}};
-	      my $keys;
+	      my $keys="";
 	      foreach my $pk(@pk)
 	      {
 		$keys.="<key>$pk</key>\n";
@@ -1854,7 +1854,7 @@ EOF
             CONS: while (my $consline= read_and_clean($file))
             {
                 next if ($consline =~ /^\($/);
-                if ($consline =~ /^\t\[(.*)\] (?:ASC)?,?$/)
+                if ($consline =~ /^\t\[(.*)\]\s+(?:ASC)?,?$/)
                 {
                     push @{$constraint->{COLS}}, ($1);
                 }

@@ -39,4 +39,4 @@ doesn't exist either in PG. So more constraints will fail.
 
 Can this tool migrate functions and stored procedures?
 ----------------------------------
-No, Transact-SQL is very different from PostgreSQL's many PL languages. You could give a look at https://bitbucket.org/openscg/pgtsql but I can't help you with this… and I don't think it is a long term viable option.
+No, Transact-SQL is very different from PostgreSQL's many PL languages. These would need a manual migration.
