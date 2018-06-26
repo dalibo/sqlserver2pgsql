@@ -1802,18 +1802,29 @@ EOF
                             ->{INDEXES}->{$idxname}->{WHERE}=$filter;
                 }
             }
+				}
+
+				# we do not take migrate spatial indexes
+        elsif ($line =~ /^CREATE SPATIAL INDEX/)
+        {
+            my $def=$line;
+            while (my $idx = read_and_clean($file))
+            {
+              $def.=$idx;
+            }
+            print STDERR "This spatial index won't be migrated:\n$def\n";
         }
-		elsif ($line =~ /^CREATE SPATIAL INDEX/)
-		{
-			my $def=$line;
-			while (my $idx = read_and_clean($file))
-			{
-				$def.=$idx;
-			}
-			print STDERR "This spatial index won't be migrated:\n$def\n";
 
-		}
+        elsif ($line =~ /^ALTER INDEX \[(.*)\] ON \[(.*)\]\.\[(.*)\] DISABLE$/)
+        {
+            my $idxname     = $1;
+            my $schemaname  = relabel_schemas($2);
+            my $tablename   = $3;
 
+            $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
+                    ->{$idxname}->{DISABLE} = 1;
+				}
+				
         # Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
         # PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
         elsif ($line =~
@@ -2485,7 +2496,12 @@ sub generate_schema
                 my $index_created = 0;
                 my $idxref =
                     $refschema->{TABLES}->{$table}->{INDEXES}->{$index};
-                my $idxdef = "CREATE";
+                my $idxdef .= "";
+                if ($idxref->{DISABLE})
+                {
+                    $idxdef .= "-- ";
+                }
+                $idxdef .= "CREATE";
                 if ($idxref->{UNIQUE})
                 {
                     $idxdef .= " UNIQUE";
@@ -2494,20 +2510,35 @@ sub generate_schema
                 {
                    $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
                      . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ")";
-                   if (not defined $idxref->{WHERE})
+                   if (not defined $idxref->{WHERE} and not defined $idxref->{DISABLE})
                    {
                        $idxdef .= ";\n";
                        print AFTER $idxdef;
-                      # the possible comment would go to after file
-                      $index_created = 1;
+                       # the possible comment would go to after file
+                       $index_created = 1;
                    }
                    else
-                   {
-                       print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
-                       $idxdef .= "\nWHERE (" . convert_transactsql_code($idxref->{WHERE}) . ");\n";
+									 {
+											# this is either a disabled index or an index with a where declaration	  
+											if (defined $idxref->{WHERE})
+											{
+												 print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
+                         if ($idxref->{DISABLE})
+												 {
+														 # if disabled, will be on the same line
+                             $idxdef .= " ";
+												 }
+												 else 
+												 {
+														 # otherwise, write condition on a new line
+                             $idxdef .= "\n";
+												 }
+												 $idxdef .= "WHERE (" . convert_transactsql_code($idxref->{WHERE}) . ")";
+											 }
+                       $idxdef .= ";\n";
                        print UNSURE $idxdef;
-                      # the possible comment would go to unsure file
-                      $index_created = 2;
+                       # the possible comment would go to unsure file
+                       $index_created = 2;
                     }
                    
                     # Produce the comments for indexes
