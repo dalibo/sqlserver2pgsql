@@ -489,7 +489,7 @@ sub format_identifier_cols_index
 sub convert_transactsql_code
 {
 	my ($code)=@_;
-	print STDERR "convert: $code\n";
+	#print STDERR "convert: $code\n";
 
 	if ($code =~ /^\((.+?)\)\s+(AND|OR)\s+\((.+?)\)$/) {
 	   my ($lhs,$op,$rhs)=($1,$2,$3);
@@ -513,7 +513,7 @@ sub convert_transactsql_code
 		$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
 		$code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
 	}
-	print STDERR "to: $code\n\n";
+	#print STDERR "to: $code\n\n";
 	return $code;
 }
 
