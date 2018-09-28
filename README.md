@@ -64,10 +64,10 @@ run sqlserver2pgsql.pl from.
 If you just want to convert this schema, run:
 
 ```
-./sqlserver2pgsql.pl -f sqlserver_sql_dump \
-                   -b output_before_script\
-                   -a output_after_script\
-                   -u output_unsure_script
+./sqlserver2pgsql.pl -f sqlserver_sql_dump   \
+                     -b output_before_script \
+                     -a output_after_script  \
+                     -u output_unsure_script
 ```
 
 The sqlserver2pgsql Perl script processes your SQL raw dump "sqlserver_sql_dump" and produces these three scripts:

@@ -86,8 +86,8 @@ sub parse_conf_file
                       'postgresql username'      => 'pu',
                       'postgresql password'      => 'pw',
                       'kettle directory'         => 'kettle',
-                      'parallelism_in'              => 'parallelism_in',
-                      'parallelism_out'              => 'parallelism_out',
+                      'parallelism_in'           => 'parallelism_in',
+                      'parallelism_out'          => 'parallelism_out',
                       'before file'              => 'before_file',
                       'after file'               => 'after_file',
                       'unsure file'              => 'unsure_file',
@@ -102,7 +102,7 @@ sub parse_conf_file
                       'sort size'                => 'sort_size',
                       'use pk if possible'       => 'use_pk_if_possible',
                       'ignore errors'            => 'ignore_errors',
-		      'postgresql force ssl'                => 'pforce_ssl',
+		      'postgresql force ssl'     => 'pforce_ssl',
                      );
 
     # Open the conf file or die
@@ -412,11 +412,13 @@ sub camel_to_snake
     return $string;
 }
 
-# This function is used to determine if a PK will be sorted the same in SQL Server and PG
+# This function is used to determine if a PK will be sorted the same in SQL 
+# Server and PostgreSQL.
 # It means that it doesn't depend on collation orders or other internals.
-# For now, only numeric and date data types are considered OK
-# Used for incremental jobs, to know if we can ask the databases to send us pre-sorted data
-# We also filter on $use_pk_if_possible
+# For now, only numeric and date data types are considered OK.
+# Used for incremental jobs, to know if we can ask the databases to send us 
+# pre-sorted data.
+# We also filter on $use_pk_if_possible.
 sub is_pk_sort_order_safe
 {
         my ($schema,$table)=@_;
@@ -701,51 +703,101 @@ sub check_kettle_properties
 # Usage, obviously. Has to be kept in sync with new command line options
 sub usage
 {
-    print
-        "$0 [-k kettle_output_directory] -b before_file -a after_file -u unsure_file -f sql_server_schema_file[-h] [-i]\n";
-    print
-        "\nExpects a SQL Server SQL structure dump as -f (preferably unicode)\n";
-    print "-conf uses a conf file. All options below can also be set there. Command line options will overwrite conf options\n";
-    print "-i tells $0 to create a case-insensitive PostgreSQL schema\n";
-    print
-        "-nr tells $0 not to convert the dbo schema to public. dbo will stay dbo\n";
-    print
-        "-num tells $0 to convert numeric xxx,0 to int, bigint, etc. Will not keep numeric scale and precision for the converted\n";
-    print
-        "-relabel_schemas gives a list of schemas to rename. For instance -relabel_schemas 'source1=>dest1;source2=>dest2'\n";
-    print "  -nr simply cancels the default dbo=>public remapping. Don't forget to put the remapping between quotes\n";
-    print
-        "-keep_identifier_case tells $0 to keep the case of sql server database objects (not advised). Default is to lowercase everything.\n";
-    print
-        "-camel_to_snake tells $0 to convert the object names from camelCase to camel_case, which is more often used in PostgreSQL.\nDon't use this unless you are ready to do changes in the client.\n";
-    print "before_file contains the structure\n";
-    print "after_file contains index, constraints\n";
-    print "validate_constraints validates the constraints that have been created\n";
-    print "sort_size will change size of sort batch for the incremental job. Too small and it will be slow, too big and you will get Java Out of Heap Memory errors.\n";
-    print "sort_size is 10000, which is very low, to try to avoid problems. First, raise java heap memory (in the kitchen script), then try higher values if you need more speed\n";
-    print "use_pk_if_possible is false (0) by default. You can put it to 1 (true), or give a comma separated list of tables (with schema). Compared case insensitively\n";
-    print
-        "unsure_file contains things we cannot guarantee will work, such as views\n";
-    print "\n";
-    print
-        "If you are generating for kettle, you'll need to provide connection information\n";
-    print "for connecting to both databases:\n";
-    print "-sd: sqlserver database\n";
-    print "-sh: sqlserver host\n";
-    print "-si: sqlserver host instance\n";
-    print "-sp: sqlserver port\n";
-    print "-su: sqlserver username\n";
-    print "-sw: sqlserver password\n";
-    print "-pd: postgresql database\n";
-    print "-ph: postgresql host\n";
-    print "-pp: postgresql port\n";
-    print "-pu: postgresql username\n";
-    print "-pw: postgresql password\n";
-    print "-pi: parallelism level for the kettle job (input, sql server)\n";
-    print "-po: parallelism level for the kettle job (output, postgresql)\n";
-    print "-pforce_ssl: force a SSL session to PostgreSQL\n";
-    print "You may also choose to ignore insert errors (inserting will be much slower)\n";
-    print "-ignore_errors\n";
+    print qq{
+Usage: 
+    sqlserver2pgsql -b BEFORE_FILE -a AFTER_FILE -u UNSURE_FILE -f SQLSERVER_SCHEMA_FILE
+
+Description:
+
+    This script is a migration tool to convert a Microsoft SQL Server Database
+    into a PostgreSQL database, as automatically as possible. It takes a Sql
+    Server SQL schema dump, and creates a postgresql dump in 3 parts: 
+    before_file, after_file and unsure_file.
+    Optionnaly, using the '-k' option, it will generate a kettle job to 
+    transfer all data.
+
+Mandatory options:
+
+  SQL Server schema input file:
+    -f SQLSERVER_SCHEMA_FILE
+            a readable SQL Server SQL structure dump.
+
+  PostgreSQL output schema files:
+    -b BEFORE_SCRIPT
+            contains what is needed to import data: types, tables and columns.
+    -a AFTER_SCRIPT
+            contains the rest: indexes, constraints.
+    -u UNSURE_SCRIPT
+            contains objects we attempt to migrate, but cannot guarantee, such 
+            as views or complex indexes.
+
+Options:
+
+    -conf CONFIGURATION_FILE
+            uses a configuration file. All options can be set there. Command 
+            line options will overwrite conf options.
+    -i      the resulting PostgreSQL names will be case-insensitive.
+    -nr     the SQL Server 'dbo' schema will not be translated to PostgreSQL 
+            'public' schema. 'dbo' will stay 'dbo'.
+    -camel_to_snake
+            all object names are converted from 'camelCase' to 'camel_case', 
+            which is more often used in PostgreSQL. Do not use this unless you
+            are ready to do SQL query changes in the client.
+    -relabel_schemas 'SOURCE1=>DEST1;SOURCE2=>DEST2'
+            gives a list of schemas to rename. Quote this option to prevent the
+            shell to alter it. The '-nr' option cancels the default 'dbo' to
+            'public' remapping.
+    -keep_identifier_case
+            keep the case of SQL server database objects. This option is not
+            advised. Default is to lowercase everything.
+    -num    convert numeric 'xxx,0' to int, bigint, etc. Will not keep numeric
+            scale and precision for the converted.
+    -validate_constraints {yes|no|after}
+            should the constraints be validated. Set to "yes" by default. If
+            set to "no", the constraints will be set as 'NOT VALID'. If set to
+            "after", the constraints will be set as 
+            'NOT VALID', but the validation queries will be enforced in the
+            unsure file.
+    -use_pk_if_possible {0|1|LIST_OF_TABLES} (Default 0)
+            determine if a primary key will be sorted in the same way in SQL
+            Server and PostgreSQL. Default '0', do not sort tables. If set to
+            '1' sort all tables. LIST_OF_TABLES gives a comma separated list of
+            tables to sort in the form 'schema1.table1,schema2.table2'. Cases 
+            are compared insensitively.
+
+  Kettle options: 
+    if you are generating for kettle, you must provide connection information.
+
+    -sd SQLSERVER_DATABASE
+    -sh SQLSERVER_HOST
+    -si SQLSERVER_HOST
+    -sp SQLSERVER_PORT
+    -su SQLSERVER_USERNAME
+    -sw SQLSERVER_PASSWORD
+    -pd POSTGRESQL_DATABASE
+    -ph POSTGRESQL_HOST
+    -pp POSTGRESQL_PORxT
+    -pu POSTGRESQL_USERNAME
+    -pw POSTGRESQL_PASSWORD
+    -pi PARALLELISM_IN
+            parallelism level for the kettle job (input, SQL Server). Default 1.
+    -po PARALLELISM_OUT
+            parallelism level for the kettle job (output, PostgreSQL). Default 8.
+    -pforce_ssl
+            force a SSL session to PostgreSQL
+    -k KETTLE_OUTPUT_DIRECTORY
+    -sort_size INTEGER
+            set the size of the sort batch for the incremental job. If set to a
+            small value, the process will be slow. If set to a too large value,
+            you will get Java 'Out of Heap Memory' errors.
+            The default value is 10000, which is very low, in order to avoid 
+            problems. First, raise Java 'Heap Memory' in the kitchen script,
+            then try higher values if you need more speed.
+    -ignore_errors
+            choose to ignore insert errors. If this option is used, inserting
+            will be much slower.
+};
+        exit 0;
 }
 
 # This function generates kettle transformations, and a kettle job running all these
