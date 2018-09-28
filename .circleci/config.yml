@@ -1,27 +1,30 @@
 version: 2
 
 jobs:
-  convert:
-    docker: [{image: "perl:5.24-threaded"}]
-    steps:
+  test:
+    docker:
+      - image: perl:5.24-threaded
+      - image: postgres:10-alpine
+    environment:
+      # Inject APT packaged dependencies.
+      PERL5LIB: /usr/lib/x86_64-linux-gnu/perl5/5.24:/usr/share/perl5
+      PGHOST: localhost
+      PGDATABASE: postgres
+      PGUSER: postgres
     working_directory: /tmp/sqlserver2pgsql
     steps:
-    - run:
-        name: Install debian packages
-        command: >
-          apt update -y &&
-          apt install -y --no-install-recommends bats git openssh-client
-    - checkout
-    - run:
-        name: Executing tests
-        environment:
-          # Inject APT packaged dependencies.
-          PERL5LIB: /usr/lib/x86_64-linux-gnu/perl5/5.24:/usr/share/perl5
-        command: prove --verbose
+      - run:
+          name: Install debian packages
+          command: |
+            apt update -y
+            apt install -y --no-install-recommends bats git openssh-client postgresql-client
+      - checkout
+      - run:
+          name: Executing tests
+          command: prove --verbose
 
 workflows:
   version: 2
   pipeline:
     jobs:
-    - convert
-    #- test
+      - test

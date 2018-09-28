@@ -1,0 +1,20 @@
+version: "3"
+
+services:
+  sqlserver2pgsql:
+    image: perl:5.24-threaded
+    environment:
+      # Inject APT packaged dependencies.
+      PERL5LIB: /usr/lib/x86_64-linux-gnu/perl5/5.24:/usr/share/perl5
+    volumes:
+      - .:/tmp/workspace
+    command: perl ./sqlserver2pgsql.pl -f ./regression/reg_tests.sql -b /tmp/workspace/test/before.sql -a /tmp/workspace/test/after.sql -u /tmp/workspace/test/unsure.sql -k /tmp/workspace/test/kettle -sd 1 -sh 1 -sp 1 -su 1 -sw 1 -pd 1 -ph 1 -pp 1 -pu 1 -pw 2
+
+  postgres:
+    image: postgres:10-alpine
+    environment:
+      PGHOST: localhost
+      PGDATABASE: postgres
+      PGUSER: postgres
+    volumes:
+      - .:/tmp/workspace

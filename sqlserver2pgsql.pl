@@ -489,15 +489,15 @@ sub format_identifier_cols_index
 sub convert_transactsql_code
 {
 	my ($code)=@_;
-	# print STDERR "convert: $code\n";
+	#print STDERR "convert: $code\n";
 
-	if ($code =~ /^\((.*)\)\s+(AND|OR)\s+\((.*)\)$/) {
+	if ($code =~ /^\((.+?)\)\s+(AND|OR)\s+\((.+?)\)$/) {
 	   my ($lhs,$op,$rhs)=($1,$2,$3);
 	   $code = "(".convert_transactsql_code("$lhs").") $op (".convert_transactsql_code("$rhs").")";
 	}
-	elsif ($code =~ /^(.*)\s+(AND|OR)\s+(.*)$/) {
+	elsif ($code =~ /^(.+?)\s+(AND|OR)\s+(.+?)$/) {
 	   my ($lhs,$op,$rhs)=($1,$2,$3);
-	   $code = convert_transactsql_code("$lhs")." $op ".convert_transactsql_code("$rhs");
+	   $code = "(".convert_transactsql_code("$lhs")." $op ".convert_transactsql_code("$rhs").")";
 	}
 	else {
 		if ($case_treatment==0)
@@ -513,7 +513,7 @@ sub convert_transactsql_code
 		$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
 		$code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
 	}
-	# print STDERR "to: $code\n\n";
+	#print STDERR "to: $code\n\n";
 	return $code;
 }
 
@@ -1799,7 +1799,7 @@ EOF
                     # This is a where clause. PostgreSQL has them too. But we cannot be sure this will be exactly the same. So if an index as a WHERE clause, it has to go to unsure
                     my $filter=$1;
                     $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
-                            ->{INDEXES}->{$idxname}->{WHERE}=$filter;
+                            ->{INDEXES}->{$idxname}->{WHERE}="(".$filter.")";
                 }
             }
 				}
@@ -2467,7 +2467,7 @@ sub generate_schema
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
             foreach my $constraint (
-                             @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
+	       @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
             {
                 next unless ($constraint->{TYPE} eq 'UNIQUE');
                 my $consdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
@@ -2518,28 +2518,28 @@ sub generate_schema
                        $index_created = 1;
                    }
                    else
-									 {
-											# this is either a disabled index or an index with a where declaration	  
-											if (defined $idxref->{WHERE})
-											{
-												 print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
-                         if ($idxref->{DISABLE})
-												 {
-														 # if disabled, will be on the same line
-                             $idxdef .= " ";
-												 }
-												 else 
-												 {
-														 # otherwise, write condition on a new line
-                             $idxdef .= "\n";
-												 }
-												 $idxdef .= "WHERE (" . convert_transactsql_code($idxref->{WHERE}) . ")";
-											 }
-                       $idxdef .= ";\n";
-                       print UNSURE $idxdef;
-                       # the possible comment would go to unsure file
-                       $index_created = 2;
-                    }
+		      {
+			 # this is either a disabled index or an index with a where declaration
+			 if (defined $idxref->{WHERE})
+			    {
+			       print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
+			       if ($idxref->{DISABLE})
+				  {
+				     # if disabled, will be on the same line
+				     $idxdef .= " ";
+				  }
+			       else
+				  {
+				     # otherwise, write condition on a new line
+				     $idxdef .= "\n";
+				  }
+			       $idxdef .= "WHERE (" . convert_transactsql_code($idxref->{WHERE}) . ")";
+			    }
+			 $idxdef .= ";\n";
+			 print UNSURE $idxdef;
+			 # the possible comment would go to unsure file
+			 $index_created = 2;
+		      }
                    
                     # Produce the comments for indexes
                     if (defined $idxref->{COMMENT})
@@ -2617,11 +2617,11 @@ sub generate_schema
                     }
                 }
                 elsif ($constraint->{TYPE} eq 'CHECK')
-                {
-                    $consdef .= " CHECK (" . convert_transactsql_code($constraint->{TEXT}) . ");\n";
-                    print UNSURE $consdef
-                        ;    # Check constraints are SQL, so cannot be sure
-                }
+		   {
+		      $consdef .= " CHECK (" . convert_transactsql_code($constraint->{TEXT}) . ");\n";
+		      print UNSURE $consdef
+			 ;    # Check constraints are SQL, so cannot be sure
+		   }
                 elsif ($constraint->{TYPE} eq 'CHECK_CITEXT')
                 {
 
