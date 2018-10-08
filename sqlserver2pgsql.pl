@@ -232,8 +232,19 @@ sub convert_type
         if ((defined $sqlqual and defined($unqual{$types{$sqlstype}}))
             or not defined $sqlqual)
         {
-            # This is one of the few types that have to be unqualified (binary type)
-            $rettype = $types{$sqlstype};
+	   # This is one of the few types that have to be unqualified (binary type)
+	   $rettype = $types{$sqlstype};
+
+	   # but we might add a check constraint for binary data
+	   if ($sqlstype =~ 'binary' and defined $sqlqual) {
+	      print STDERR "convert_type: $sqlstype, $sqlqual, $colname\n";
+	      my $constraint;
+	      $constraint->{TYPE}  = 'CHECK_BINARY_LENGTH';
+	      $constraint->{TABLE} = $tablename;
+	      $constraint->{TEXT}  = "octet_length(" . format_identifier($colname) . ") <= $sqlqual";
+	      push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                        ->{CONSTRAINTS}}, ($constraint);
+	   }
         }
         elsif (defined $sqlqual)
         {
@@ -2676,11 +2687,17 @@ sub generate_schema
 		   }
                 elsif ($constraint->{TYPE} eq 'CHECK_CITEXT')
                 {
-
                     # These have been generated here, for citext mostly. So we know their syntax is ok
                     $consdef .= " CHECK (" . $constraint->{TEXT} . ");\n";
                     print BEFORE $consdef
                         ; # These are for citext. So they should be checked asap
+                }
+                elsif ($constraint->{TYPE} eq 'CHECK_BINARY_LENGTH')
+                {
+                    # These have been generated here. Their syntax are ok.
+                    $consdef .= " CHECK (" . $constraint->{TEXT} . ");\n";
+                    print BEFORE $consdef
+                        ; # These are for bytea length, checked them asap
                 }
                 else
                 {
