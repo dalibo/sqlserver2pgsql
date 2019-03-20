@@ -1809,7 +1809,7 @@ EOF
         }
 
         elsif ($line =~
-            /^CREATE\s*(UNIQUE )?\s*(NONCLUSTERED|CLUSTERED)?\s*INDEX \[(.*?)\] ON \[(.*?)\]\.\[(.*?)\](\(\[.*?\]\))?/
+            /^\s*CREATE\s*(UNIQUE )?\s*(NONCLUSTERED|CLUSTERED)?\s*INDEX \[(.*?)\] ON \[(.*?)\]\.\[(.*?)\](\(\[.*?\]\))?/
             )
         {
             # Index creation. Index are namespaced per table in SQL Server, not in PostgreSQL
@@ -2235,6 +2235,14 @@ EOF
             }
         }
 
+				# Save variable for future use
+        elsif ($line =~ /^:setvar\s+(\S+)\s+"(.*)"/)
+				{
+					 my $varname = $1;
+					 my $varvalue = $2;
+					 $objects->{VARIABLES}->{$varname} = $varvalue;
+					 next;
+        }
 
         # Ignore USE, GO, and things that have no meaning for postgresql
         elsif ($line =~
@@ -2763,9 +2771,15 @@ sub generate_schema
             {
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
                 next unless (defined $colref->{DEFAULT});
+								my $default_value = $colref->{DEFAULT}->{VALUE};
+								if ($default_value =~ /\(\$\((\S+)\)\)/)
+								{
+									 $default_value = $objects->{VARIABLES}->{$1}
+								}
                 my $definition =
-                    "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ALTER COLUMN " . format_identifier($col) . " SET DEFAULT "
-                    . $colref->{DEFAULT}->{VALUE} . ";\n";
+									 "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table)
+									 . " ALTER COLUMN " . format_identifier($col)
+									 . " SET DEFAULT " . $default_value . ";\n";
                 if ($colref->{DEFAULT}->{UNSURE})
                 {
                     print UNSURE $definition;
