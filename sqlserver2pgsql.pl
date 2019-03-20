@@ -50,6 +50,7 @@ our $parallelism_out;
 our $sort_size;
 our $use_pk_if_possible;
 our $pforce_ssl;
+our $stringtype_unspecified;
 
 # Will be set if we detect GIS objects
 our $requires_postgis=0;
@@ -103,6 +104,7 @@ sub parse_conf_file
                       'use pk if possible'       => 'use_pk_if_possible',
                       'ignore errors'            => 'ignore_errors',
 		      'postgresql force ssl'     => 'pforce_ssl',
+		      'stringtype unspecified'   => 'stringtype_unspecified',
                      );
 
     # Open the conf file or die
@@ -151,6 +153,7 @@ sub set_default_conf_values
     $pp=5432 unless (defined ($pp));
     $sp=1433 unless (defined ($sp));
     $pforce_ssl=0 unless (defined ($pforce_ssl));
+    $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -796,6 +799,10 @@ Options:
             parallelism level for the kettle job (output, PostgreSQL). Default 8.
     -pforce_ssl
             force a SSL session to PostgreSQL
+    -stringtype_unspecified
+            By default, the data are sent as varchar. This can block date field
+            migration. By using this option, make PostgreSQL infer the data type.
+
     -k KETTLE_OUTPUT_DIRECTORY
     -sort_size INTEGER
             set the size of the sort batch for the incremental job. If set to a
@@ -934,6 +941,12 @@ sub generate_kettle
 		    $newtemplate =~ s/__pforce_ssl__//g;
 	    }
 
+	    if ($stringtype_unspecified) {
+	       $newtemplate =~ s/__stringtype_unspecified__/<attribute><code>EXTRA_OPTION_POSTGRESQL.stringtype<\/code><attribute>unspecified<\/attribute><\/attribute>\n/g;
+	    }
+	    else {
+	       $newtemplate =~ s/__stringtype_unspecified__//g;
+	    }
 
             $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
             $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
@@ -964,7 +977,13 @@ sub generate_kettle
 	    {
 		    $newincrementaltemplate =~ s/__pforce_ssl__//g;
 	    }
-# We have a bit of work to do on primary keys for the incremental template: we need them
+	    if ($stringtype_unspecified) {
+	       $newincrementaltemplate =~ s/__stringtype_unspecified__/<attribute><code>EXTRA_OPTION_POSTGRESQL.stringtype<\/code><attribute>unspecified<\/attribute><\/attribute>\n/g;
+	    }
+	    else {
+	       $newincrementaltemplate =~ s/__stringtype_unspecified__//g;
+	    }
+	    # We have a bit of work to do on primary keys for the incremental template: we need them
             # to compare the tables…
             if (defined($refschema->{TABLES}->{$table}->{PK}->{COLS}))
             {
@@ -1191,6 +1210,12 @@ sub generate_kettle
     else
     {
         $job_header =~ s/__pforce_ssl__//g;
+    }
+    if ($stringtype_unspecified) {
+       $job_header =~ s/__stringtype_unspecified__/<attribute><code>EXTRA_OPTION_POSTGRESQL.stringtype<\/code><attribute>unspecified<\/attribute><\/attribute>\n/g;
+    }
+    else {
+       $job_header =~ s/__stringtype_unspecified__//g;
     }
 
     print JOBFILE $job_header;
@@ -2974,14 +2999,16 @@ my $options = GetOptions("k=s"    => \$kettle,
                          "i"      => \$case_insensitive,
                          "nr"     => \$norelabel_dbo,
                          "num"    => \$convert_numeric_to_int,
-                         "relabel_schemas=s" => \$relabel_schemas,
-                         "keep_identifier_case" =>\$keep_identifier_case,
-                         "camel_to_snake" => \$camel_to_snake,
+                         "relabel_schemas=s"      => \$relabel_schemas,
+                         "keep_identifier_case"   =>\$keep_identifier_case,
+                         "camel_to_snake"         => \$camel_to_snake,
                          "validate_constraints=s" =>\$validate_constraints,
                          "sort_size=i"            =>\$sort_size,
                          "use_pk_if_possible=s"   =>\$use_pk_if_possible,
                          "ignore_errors"          => \$ignore_errors,
-			 "pforce_ssl"		  => \$pforce_ssl);
+			 "pforce_ssl"		  => \$pforce_ssl,
+			 "stringtype_unspecified" => \$stringtype_unspecified
+		      );
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)
@@ -3183,6 +3210,7 @@ BEGIN
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
       <attribute><code>PRESERVE_RESERVED_WORD_CASE</code><attribute>Y</attribute></attribute>
+      __stringtype_unspecified__
     </attributes>
   </connection>
   <order>
@@ -3544,6 +3572,7 @@ EOF
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
       <attribute><code>PRESERVE_RESERVED_WORD_CASE</code><attribute>Y</attribute></attribute>
+      __stringtype_unspecified__
     </attributes>
   </connection>
   <order>
@@ -3825,6 +3854,7 @@ EOF
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
       <attribute><code>PRESERVE_RESERVED_WORD_CASE</code><attribute>Y</attribute></attribute>
+      __stringtype_unspecified__
     </attributes>
   </connection>
     <slaveservers>
@@ -4060,6 +4090,7 @@ EOF
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
       <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+      __stringtype_unspecified__
     </attributes>
   </connection>
   <connection>
@@ -4489,6 +4520,7 @@ EOF
       <attribute><code>SQL_CONNECT</code><attribute>set synchronous_commit to off&#x3b;</attribute></attribute>
       <attribute><code>SUPPORTS_BOOLEAN_DATA_TYPE</code><attribute>Y</attribute></attribute>
       <attribute><code>USE_POOLING</code><attribute>N</attribute></attribute>
+      __stringtype_unspecified__
     </attributes>
   </connection>
   <connection>
