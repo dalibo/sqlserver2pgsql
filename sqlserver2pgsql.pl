@@ -112,10 +112,10 @@ sub parse_conf_file
     while (my $line = <CONF>)
     {
         $line =~ s/#.*//;        # Remove comments
-        $line =~ s/\s+=\s+/=/;    # Remove whitespaces around the =
+        $line =~ s/\s+=\s+/=/;   # Remove whitespaces around the =
         $line =~ s/\s+$//;       # Remove trailing whitespaces
         next
-            if ($line =~ /^$/);  # Empty line after comments have been removed
+           if ($line =~ /^$/);  # Empty line after comments have been removed
         $line =~ /^(.*?)=(.*)$/ or die "Cannot parse $line from $conf_file";
         my ($param, $value) = ($1, $2);
         no strict 'refs';        # Using references by name, temporarily
@@ -1277,6 +1277,7 @@ sub generate_kettle
                 $line =~ s/\/\*.*//;    # Remove everything after the comment
             }
         }
+
         return $line;
     }
 }
@@ -1421,14 +1422,15 @@ sub parse_dump
             TABLE: while (my $line = read_and_clean($file))
             {
                 # Here is a col definition.
-		# We ignore ROWGUIDCOL as it has no meaning in PostgreSQL and cannot be emulated
-		# (it makes it possible to do a select xxx WHERE $ROWGUID, without knowing the column name, typical microsoft stuff :( )
-		# To make matters even worse, they seem to systematically add a space after it :)
+                # We ignore ROWGUIDCOL as it has no meaning in PostgreSQL and cannot be emulated
+                # (it makes it possible to do a select xxx WHERE $ROWGUID, without knowing the
+                # column name, typical microsoft stuff :( )
+                # To make matters even worse, they seem to systematically add a space after it :)
                 if ($line =~
-                    /^\t\[(.*)\] (?:\[(.*)\]\.)?\[(.*)\]\s*(\(.+?\))?(?: COLLATE (\S+))?( IDENTITY\s*\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(?:SPARSE +)?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
+                    /^\s+\[(.*)\]\s*(?:\[(.*)\]\.)?\[(.*)\]\s*(\(.+?\))?(?: COLLATE (\S+))?( IDENTITY\s*\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(?:SPARSE +)?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
                     )
                 {
-                    #Deported into a function because we can also meet alter table add columns on their own
+                    # Deported into a function because we can also meet alter table add columns on their own
                     my $colname       = $1;
                     my $coltypeschema = $2;
                     my $coltype       = $3;
@@ -1438,16 +1440,16 @@ sub parse_dump
                     my $colisnull      =$7;
                     my $default        =$8;
                     add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
-	            if (defined $default)
-		    {
-			    store_default_value($schemaname,$tablename,$colname,$default,$line);
-		    }
-                }
+										if (defined $default)
+										{
+											 store_default_value($schemaname,$tablename,$colname,$default,$line);
+										}
+								 }
 
 
                 # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
                 # So just put it as a varchar, and issue a warning is STDOUT
-                elsif ($line =~ /^\t\[(.*)\]\s+AS\s+\((.*)\)/)
+                elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)/)
                 {
 
                     # We just get the column name
@@ -1498,7 +1500,7 @@ EOF
 
                 }
                 elsif ($line =~
-                       /^(?: CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
+                       /^\s*(?:CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
                 {
                     my $constraint
                         ; # We put everything inside this hashref, we'll push it into the constraint list later
@@ -1557,7 +1559,7 @@ EOF
                     }
 
                 }
-                elsif ($line =~ /^\) ON \[PRIMARY\]/)
+                elsif ($line =~ /^\s*\) ON \[PRIMARY\]/)
                 {
                     # End of the table
                     next MAIN;
@@ -1674,7 +1676,7 @@ EOF
         # containing only a single quote (end of the dbo.sp_executesql)
         # The problem is that SQL Server seems to be spitting the original query used to create the view, not a normalized version
         # of it, as PostgreSQL does. So we capture the query, and hope it works for now.
-        elsif ($line =~/^\s*(create\s*view)/i)
+        elsif ($line =~/^(create\s*view)/i)
         {
             my $viewname;
             my $schemaname;
@@ -1807,7 +1809,7 @@ EOF
         }
 
         elsif ($line =~
-            /^\s*CREATE\s*(UNIQUE )?\s*(NONCLUSTERED|CLUSTERED)?\s*INDEX \[(.*?)\] ON \[(.*?)\]\.\[(.*?)\](\(\[.*?\]\))?/
+            /^CREATE\s*(UNIQUE )?\s*(NONCLUSTERED|CLUSTERED)?\s*INDEX \[(.*?)\] ON \[(.*?)\]\.\[(.*?)\](\(\[.*?\]\))?/
             )
         {
             # Index creation. Index are namespaced per table in SQL Server, not in PostgreSQL
