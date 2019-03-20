@@ -36,6 +36,7 @@ our $case_insensitive;  # Passed as arg: was SQL Server installation case insens
 our $norelabel_dbo;     # Passed as arg: should we convert DBO to public ?
 our $relabel_schemas;
 our $convert_numeric_to_int; # Should we convert numerics to int when possible ? (numeric (4,0) could be converted an int, for instance)
+our $drop_rowversion; # Should we remove MSSQL timestamp/rowversion columns when converting
 our $kettle;
 our $before_file;
 our $after_file;
@@ -73,39 +74,41 @@ my @view_list; # array to keep view ordering from sql server's dump (a view may 
 sub parse_conf_file
 {
 
-    # Correspondance between conf_file parameter and program variable
-    # This is also used as the list of accepted parameters in the configuration file
-    my %parameters = ('sql server database'      => 'sd',
-                      'sql server host'          => 'sh',
-                      'sql server host instance' => 'si',
-                      'sql server port'          => 'sp',
-                      'sql server username'      => 'su',
-                      'sql server password'      => 'sw',
-                      'postgresql database'      => 'pd',
-                      'postgresql host'          => 'ph',
-                      'postgresql port'          => 'pp',
-                      'postgresql username'      => 'pu',
-                      'postgresql password'      => 'pw',
-                      'kettle directory'         => 'kettle',
-                      'parallelism_in'           => 'parallelism_in',
-                      'parallelism_out'          => 'parallelism_out',
-                      'before file'              => 'before_file',
-                      'after file'               => 'after_file',
-                      'unsure file'              => 'unsure_file',
-                      'sql server dump filename' => 'filename',
-                      'case insensitive'         => 'case_insensitive',
-                      'no relabel dbo'           => 'norelabel_dbo',
-                      'convert numeric to int'   => 'convert_numeric_to_int',
-                      'relabel schemas'          => 'relabel_schemas',
-                      'keep identifier case'     => 'keep_identifier_case',
-                      'camelcasetosnake'         => 'camel_to_snake',
-                      'validate constraints'     => 'validate_constraints',
-                      'sort size'                => 'sort_size',
-                      'use pk if possible'       => 'use_pk_if_possible',
-                      'ignore errors'            => 'ignore_errors',
-		      'postgresql force ssl'     => 'pforce_ssl',
-		      'stringtype unspecified'   => 'stringtype_unspecified',
-                     );
+	 # Correspondance between conf_file parameter and program variable
+	 # This is also used as the list of accepted parameters in the configuration file
+	 my %parameters = (
+			'sql server database'      => 'sd',
+			'sql server host'          => 'sh',
+			'sql server host instance' => 'si',
+			'sql server port'          => 'sp',
+			'sql server username'      => 'su',
+			'sql server password'      => 'sw',
+			'postgresql database'      => 'pd',
+			'postgresql host'          => 'ph',
+			'postgresql port'          => 'pp',
+			'postgresql username'      => 'pu',
+			'postgresql password'      => 'pw',
+			'kettle directory'         => 'kettle',
+			'parallelism_in'           => 'parallelism_in',
+			'parallelism_out'          => 'parallelism_out',
+			'before file'              => 'before_file',
+			'after file'               => 'after_file',
+			'unsure file'              => 'unsure_file',
+			'sql server dump filename' => 'filename',
+			'case insensitive'         => 'case_insensitive',
+			'no relabel dbo'           => 'norelabel_dbo',
+			'convert numeric to int'   => 'convert_numeric_to_int',
+			'drop rowversion'          => 'drop_rowversion',
+			'relabel schemas'          => 'relabel_schemas',
+			'keep identifier case'     => 'keep_identifier_case',
+			'camelcasetosnake'         => 'camel_to_snake',
+			'validate constraints'     => 'validate_constraints',
+			'sort size'                => 'sort_size',
+			'use pk if possible'       => 'use_pk_if_possible',
+			'ignore errors'            => 'ignore_errors',
+			'postgresql force ssl'     => 'pforce_ssl',
+			'stringtype unspecified'   => 'stringtype_unspecified',
+	 );
 
     # Open the conf file or die
     open CONF, $conf_file or die "Cannot open $conf_file";
@@ -141,6 +144,7 @@ sub set_default_conf_values
     $case_insensitive=0 unless (defined ($case_insensitive));
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
+    $drop_rowversion=0 unless (defined ($drop_rowversion));
     $case_treatment=0 if (defined ($keep_identifier_case));
     $case_treatment=2 if (defined ($camel_to_snake));
     $parallelism_in=1 unless (defined ($parallelism_in));# the jdbc driver often errors when there are several sessions to sql server
@@ -210,7 +214,7 @@ my %types = ('int'              => 'int',
              'smalldatetime'    => 'timestamp',
              'time'             => 'time',
              'timestamp'        => 'bytea',
-             'rowversion'        => 'bytea',
+             'rowversion'       => 'bytea',
              'datetimeoffset'   => 'timestamp with time zone',
              'image'            => 'bytea',
              'binary'           => 'bytea',
@@ -766,6 +770,8 @@ Options:
             advised. Default is to lowercase everything.
     -num    convert numeric 'xxx,0' to int, bigint, etc. Will not keep numeric
             scale and precision for the converted.
+    -drop_rowversion (Default 0)
+            should we drop the rowversion/timestamp columns when converting
     -validate_constraints {yes|no|after}
             should the constraints be validated. Set to "yes" by default. If
             set to "no", the constraints will be set as 'NOT VALID'. If set to
@@ -1313,7 +1319,16 @@ sub add_column_to_table
                 or die "Cannot parse colqual <$colqual>";
             $colqual = "$1";
         }
-    }
+		 }
+
+		# in case of a rowversion or timestamp columns, check if we want to keep it
+		if ($drop_rowversion
+					 and ($coltype eq 'rowversion' or $coltype eq 'timestamp'))
+		{
+				# do nothing
+				return;
+		}
+
     my $newtype =
         convert_type($coltype,   $colqual, $colname,
                      $tablename, undef,    $schemaname);
@@ -1358,8 +1373,7 @@ sub add_column_to_table
     # use a special kettle transformation for it if generating kettle
     # (see generate_kettle() )
     if (   $newtype eq 'bytea'
-        or $coltype eq
-        'ntext')    # Ntext is very slow, stored out of page
+        or $coltype eq 'ntext')    # Ntext is very slow, stored out of page
     {
         $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}
             ->{haslobs} = 1;
@@ -2978,39 +2992,41 @@ sub resolve_name_conflicts
 # Parse command line
 my $help = 0;
 
-my $options = GetOptions("k=s"    => \$kettle,
-                         "pi=i"    => \$parallelism_in,
-                         "po=i"    => \$parallelism_out,
-                         "b=s"    => \$before_file,
-                         "a=s"    => \$after_file,
-                         "u=s"    => \$unsure_file,
-                         "h"      => \$help,
-                         "conf=s" => \$conf_file,
-                         "sd=s"   => \$sd,
-                         "sh=s"   => \$sh,
-                         "si=s"   => \$si,
-                         "sp=s"   => \$sp,
-                         "su=s"   => \$su,
-                         "sw=s"   => \$sw,
-                         "pd=s"   => \$pd,
-                         "ph=s"   => \$ph,
-                         "pp=s"   => \$pp,
-                         "pu=s"   => \$pu,
-                         "pw=s"   => \$pw,
-                         "f=s"    => \$filename,
-                         "i"      => \$case_insensitive,
-                         "nr"     => \$norelabel_dbo,
-                         "num"    => \$convert_numeric_to_int,
-                         "relabel_schemas=s"      => \$relabel_schemas,
-                         "keep_identifier_case"   =>\$keep_identifier_case,
-                         "camel_to_snake"         => \$camel_to_snake,
-                         "validate_constraints=s" =>\$validate_constraints,
-                         "sort_size=i"            =>\$sort_size,
-                         "use_pk_if_possible=s"   =>\$use_pk_if_possible,
-                         "ignore_errors"          => \$ignore_errors,
-			 "pforce_ssl"		  => \$pforce_ssl,
-			 "stringtype_unspecified" => \$stringtype_unspecified
-		      );
+my $options = GetOptions(
+	 "k=s"    => \$kettle,
+	 "pi=i"   => \$parallelism_in,
+	 "po=i"   => \$parallelism_out,
+	 "b=s"    => \$before_file,
+	 "a=s"    => \$after_file,
+	 "u=s"    => \$unsure_file,
+	 "h"      => \$help,
+	 "conf=s" => \$conf_file,
+	 "sd=s"   => \$sd,
+	 "sh=s"   => \$sh,
+	 "si=s"   => \$si,
+	 "sp=s"   => \$sp,
+	 "su=s"   => \$su,
+	 "sw=s"   => \$sw,
+	 "pd=s"   => \$pd,
+	 "ph=s"   => \$ph,
+	 "pp=s"   => \$pp,
+	 "pu=s"   => \$pu,
+	 "pw=s"   => \$pw,
+	 "f=s"    => \$filename,
+	 "i"      => \$case_insensitive,
+	 "nr"     => \$norelabel_dbo,
+	 "num"    => \$convert_numeric_to_int,
+	 "drop_rowversion"         => \$drop_rowversion,
+	 "relabel_schemas=s"       => \$relabel_schemas,
+	 "keep_identifier_case"    => \$keep_identifier_case,
+	 "camel_to_snake"          => \$camel_to_snake,
+	 "validate_constraints=s"  => \$validate_constraints,
+	 "sort_size=i"             => \$sort_size,
+	 "use_pk_if_possible=s"    => \$use_pk_if_possible,
+	 "ignore_errors"           => \$ignore_errors,
+	 "pforce_ssl"		           => \$pforce_ssl,
+	 "stringtype_unspecified"  => \$stringtype_unspecified
+);
 
 # We don't understand command line or have been asked for usage
 if (not $options or $help)
