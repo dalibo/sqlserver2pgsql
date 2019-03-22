@@ -1500,7 +1500,7 @@ EOF
 
                 }
                 elsif ($line =~
-                       /^\s*(?:CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED/)
+                       /^\s*(?:CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED(?: HASH)?/)
                 {
                     my $constraint
                         ; # We put everything inside this hashref, we'll push it into the constraint list later
@@ -2438,6 +2438,12 @@ sub generate_schema
         }
     }
 
+		# Set psql variables in UNSURE
+		foreach my $varname (sort keys %{$objects->{VARIABLES}})
+		{
+			 print UNSURE "\\set $varname '$objects->{VARIABLES}->{$varname}'\n";
+		}
+		
     # For the rest, we iterate over schemas, except for array types (no point in complicating this)
     # The tables, columns, etc... will be created in the before script, so there is no dependancy
     # problem with constraints, that will be in the after script, except foreign keys which depend on unique indexes
@@ -2774,7 +2780,7 @@ sub generate_schema
 								my $default_value = $colref->{DEFAULT}->{VALUE};
 								if ($default_value =~ /\(\$\((\S+)\)\)/)
 								{
-									 $default_value = $objects->{VARIABLES}->{$1}
+									 $default_value = ":$1";
 								}
                 my $definition =
 									 "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table)
