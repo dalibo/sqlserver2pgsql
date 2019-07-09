@@ -723,7 +723,7 @@ sub usage
 {
     print qq{
 Usage: 
-    sqlserver2pgsql -b BEFORE_FILE -a AFTER_FILE -u UNSURE_FILE -f SQLSERVER_SCHEMA_FILE
+    sqlserver2pgsql.pl -b BEFORE_FILE -a AFTER_FILE -u UNSURE_FILE -f SQLSERVER_SCHEMA_FILE
 
 Description:
 
