@@ -1449,8 +1449,9 @@ sub parse_dump
 		       }
 		 }
 
-                # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
-                # So just put it as a varchar, and issue a warning is STDOUT
+                # This is a generated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
+                # So just put it as a varchar, and issue a warning in STDOUT
+		# FIXME this should exist in PG12
                 elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)/)
                 {
 
@@ -1468,7 +1469,7 @@ sub parse_dump
 
                     # Big fat warning
                     print STDERR
-                        "Warning: There is a calculated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
+                        "Warning: There is a generated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
                     print STDERR
                         "\tFor now it has been declared as a varchar in PG, so that the values can be copied\n";
                     print STDERR
