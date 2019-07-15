@@ -511,6 +511,9 @@ sub convert_transact_function
    $code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
    $code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
    $code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
+   $code =~ s/CONVERT\s*\(\s*NVARCHAR\s*(.*?)\s*\(\s*(.*?)\s*\s*\)\,\s*(.*?)\s*\)/CAST($3 AS varchar($2))/gi;
+   $code =~ s/CONVERT\s*\(\s*(.*?)\s*\(\s*(.*?)\s*\s*\)\,\s*(.*?)\s*\)/CAST($3 AS $1($2))/gi;
+   $code =~ s/CONVERT\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/CAST($2 AS $1)/gi;
    return $code;
 }
 
