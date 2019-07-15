@@ -74,46 +74,46 @@ my @view_list; # array to keep view ordering from sql server's dump (a view may 
 sub parse_conf_file
 {
 
-	 # Correspondance between conf_file parameter and program variable
-	 # This is also used as the list of accepted parameters in the configuration file
-	 my %parameters = (
-			'sql server database'      => 'sd',
-			'sql server host'          => 'sh',
-			'sql server host instance' => 'si',
-			'sql server port'          => 'sp',
-			'sql server username'      => 'su',
-			'sql server password'      => 'sw',
-			'postgresql database'      => 'pd',
-			'postgresql host'          => 'ph',
-			'postgresql port'          => 'pp',
-			'postgresql username'      => 'pu',
-			'postgresql password'      => 'pw',
-			'kettle directory'         => 'kettle',
-			'parallelism_in'           => 'parallelism_in',
-			'parallelism_out'          => 'parallelism_out',
-			'before file'              => 'before_file',
-			'after file'               => 'after_file',
-			'unsure file'              => 'unsure_file',
-			'sql server dump filename' => 'filename',
-			'case insensitive'         => 'case_insensitive',
-			'no relabel dbo'           => 'norelabel_dbo',
-			'convert numeric to int'   => 'convert_numeric_to_int',
-			'drop rowversion'          => 'drop_rowversion',
-			'relabel schemas'          => 'relabel_schemas',
-			'keep identifier case'     => 'keep_identifier_case',
-			'camelcasetosnake'         => 'camel_to_snake',
-			'validate constraints'     => 'validate_constraints',
-			'sort size'                => 'sort_size',
-			'use pk if possible'       => 'use_pk_if_possible',
-			'ignore errors'            => 'ignore_errors',
-			'postgresql force ssl'     => 'pforce_ssl',
-			'stringtype unspecified'   => 'stringtype_unspecified',
-	 );
+   # Correspondance between conf_file parameter and program variable
+   # This is also used as the list of accepted parameters in the configuration file
+   my %parameters = (
+      'sql server database'      => 'sd',
+      'sql server host'          => 'sh',
+      'sql server host instance' => 'si',
+      'sql server port'          => 'sp',
+      'sql server username'      => 'su',
+      'sql server password'      => 'sw',
+      'postgresql database'      => 'pd',
+      'postgresql host'          => 'ph',
+      'postgresql port'          => 'pp',
+      'postgresql username'      => 'pu',
+      'postgresql password'      => 'pw',
+      'kettle directory'         => 'kettle',
+      'parallelism_in'           => 'parallelism_in',
+      'parallelism_out'          => 'parallelism_out',
+      'before file'              => 'before_file',
+      'after file'               => 'after_file',
+      'unsure file'              => 'unsure_file',
+      'sql server dump filename' => 'filename',
+      'case insensitive'         => 'case_insensitive',
+      'no relabel dbo'           => 'norelabel_dbo',
+      'convert numeric to int'   => 'convert_numeric_to_int',
+      'drop rowversion'          => 'drop_rowversion',
+      'relabel schemas'          => 'relabel_schemas',
+      'keep identifier case'     => 'keep_identifier_case',
+      'camelcasetosnake'         => 'camel_to_snake',
+      'validate constraints'     => 'validate_constraints',
+      'sort size'                => 'sort_size',
+      'use pk if possible'       => 'use_pk_if_possible',
+      'ignore errors'            => 'ignore_errors',
+      'postgresql force ssl'     => 'pforce_ssl',
+      'stringtype unspecified'   => 'stringtype_unspecified',
+   );
 
-    # Open the conf file or die
-    open CONF, $conf_file or die "Cannot open $conf_file";
-    while (my $line = <CONF>)
-    {
+   # Open the conf file or die
+   open CONF, $conf_file or die "Cannot open $conf_file";
+   while (my $line = <CONF>)
+   {
         $line =~ s/#.*//;        # Remove comments
         $line =~ s/\s+=\s+/=/;   # Remove whitespaces around the =
         $line =~ s/\s+$//;       # Remove trailing whitespaces
@@ -140,7 +140,7 @@ sub parse_conf_file
 
 sub set_default_conf_values
 {
-	# Hard coded default values, set only if not passed or found in configuration
+    # Hard coded default values, set only if not passed or found in configuration
     $case_insensitive=0 unless (defined ($case_insensitive));
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
@@ -410,9 +410,9 @@ sub postgres_convert_column
         'timestamp with time zone' => 'to_char({colname} AT TIME ZONE \'UTC\', \'YYYY-MM-DD HH:MI:SS.US+00\')');
     if (defined ($functions{$coltype}))
     {
-		my $tmpcol = $functions{$coltype};
-		$tmpcol =~ s/\{colname\}/$colname/;
-        return $tmpcol;
+       my $tmpcol = $functions{$coltype};
+       $tmpcol =~ s/\{colname\}/$colname/;
+       return $tmpcol;
     }
     else
     {
@@ -508,33 +508,31 @@ sub format_identifier_cols_index
 # Things such as getdate() which can become CURRENT_TIMESTAMP
 sub convert_transactsql_code
 {
-	my ($code)=@_;
-	#print STDERR "convert: $code\n";
+   my ($code)=@_;
+   #print STDERR "convert: $code\n";
 
-	if ($code =~ /^\((.+?)\)\s+(AND|OR)\s+\((.+?)\)$/) {
-	   my ($lhs,$op,$rhs)=($1,$2,$3);
-	   $code = "(".convert_transactsql_code("$lhs").") $op (".convert_transactsql_code("$rhs").")";
-	}
-	elsif ($code =~ /^(.+?)\s+(AND|OR)\s+(.+?)$/) {
-	   my ($lhs,$op,$rhs)=($1,$2,$3);
-	   $code = "(".convert_transactsql_code("$lhs")." $op ".convert_transactsql_code("$rhs").")";
-	}
-	else {
-		if ($case_treatment==0)
-		{
-		    $code =~ s/[\[\]]/"/gi; # Bit brutal probably
-		}
-		else
-		{
-		   $code =~ s/\[(.*)\]/rename_identifier($1)/gie; # Bit brutal probably
-		}
-		$code =~ s/ISNULL\s*\(/COALESCE(/gi;
-		$code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
-		$code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
-		$code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
-	}
-	#print STDERR "to: $code\n\n";
-	return $code;
+   if ($code =~ /^\((.+?)\)\s+(AND|OR)\s+\((.+?)\)$/) {
+      my ($lhs,$op,$rhs)=($1,$2,$3);
+      $code = "(".convert_transactsql_code("$lhs").") $op (".convert_transactsql_code("$rhs").")";
+   }
+   elsif ($code =~ /^(.+?)\s+(AND|OR)\s+(.+?)$/) {
+      my ($lhs,$op,$rhs)=($1,$2,$3);
+      $code = "(".convert_transactsql_code("$lhs")." $op ".convert_transactsql_code("$rhs").")";
+   }
+   else {
+      if ($case_treatment==0) {
+	 $code =~ s/[\[\]]/"/gi; # Bit brutal probably
+      }
+      else {
+	 $code =~ s/\[(.*)\]/rename_identifier($1)/gie; # Bit brutal probably
+      }
+      $code =~ s/ISNULL\s*\(/COALESCE(/gi;
+      $code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
+      $code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
+      $code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
+   }
+   #print STDERR "to: $code\n\n";
+   return $code;
 }
 
 # This function does its best to convert MS's weird default values syntax into something logical
@@ -543,60 +541,51 @@ sub store_default_value
     my ($schema,$table,$col,$value,$line)=@_;
     if ($value =~ /^\(?(\d+(\.\d+)?)\)?$/) # Value is  numeric
     {
-	    $value = $1; # Get rid of parenthesis
-	    if ($objects->{SCHEMAS}->{relabel_schemas($schema)}->{TABLES}->{$table}->{COLS}->{$col}->{TYPE} eq 'boolean')
-	    {
-		# Ok, it IS a boolean, and we have received a number
-		if ($value eq '0')
-		{
-		    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE} = 'false';
-		}
-		elsif ($value eq '1')
-		{
-		    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE} = 'true';
-		}
-		else
-		{
-		    # We should not get here: we have a numeric which isn't 0 or 1, and is supposed to be a boolean
-		    die "Got an unexpected boolean : $value, for line $line\n";
-		}
-	    }
-	    else
-	    {
-		$objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
-		    = $value;
-	    }
-	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
-		= 0;
-
+       $value = $1; # Get rid of parenthesis
+       if ($objects->{SCHEMAS}->{relabel_schemas($schema)}->{TABLES}->{$table}->{COLS}->{$col}->{TYPE} eq 'boolean') {
+	  # Ok, it IS a boolean, and we have received a number
+	  if ($value eq '0') {
+	     $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE} = 'false';
+	  }
+	  elsif ($value eq '1') {
+	     $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE} = 'true';
+	  }
+	  else {
+	     # We should not get here: we have a numeric which isn't 0 or 1, and is supposed to be a boolean
+	     die "Got an unexpected boolean : $value, for line $line\n";
+	  }
+       }
+       else {
+	  $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+	     = $value;
+       }
+       $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+	  = 0;
     }
     elsif ($value =~ /^NULL$/) # A NULL value
     {
-	    # NULL WITHOUT quotes around it !
-	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
-		= 'NULL';
-	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
-		= 0;
+       # NULL WITHOUT quotes around it !
+       $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+	  = 'NULL';
+       $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+	  = 0;
     }
     elsif ($value =~ /^N?'(.*)'$/) # There is sometimes an N before a string.
     {
-	    $value = $1; # Get rid of junk
-	    # Default text value, text, between commas
-	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
-		= "'$1'";
-	    $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
-		= 0;
+       $value = $1; # Get rid of junk
+       # Default text value, text, between commas
+       $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+	  = "'$1'";
+       $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+	  = 0;
     }
-    else
-    {
-	#This must be a function call...
-            $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
-                = convert_transactsql_code($value);
-            $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
-                = 1;
-
+    else {
+       #This must be a function call...
+       $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{VALUE}
+	  = convert_transactsql_code($value);
+       $objects->{SCHEMAS}->{$schema}->{TABLES}->{$table}->{COLS}->{$col}->{DEFAULT}->{UNSURE}
+	  = 1;
     }
-
 }
 
 
@@ -938,21 +927,21 @@ sub generate_kettle
                 $newtemplate =~ s/<use_batch>Y<\/use_batch>/<use_batch>N<\/use_batch>/g; # Cannot use batch mode with ignore errors
             }
 
-	    if ($pforce_ssl)
-	    {
-		    $newtemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
-	    }
-	    else
-	    {
-		    $newtemplate =~ s/__pforce_ssl__//g;
-	    }
+            if ($pforce_ssl)
+            {
+                    $newtemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
+            }
+            else
+            {
+                    $newtemplate =~ s/__pforce_ssl__//g;
+            }
 
-	    if ($stringtype_unspecified) {
-	       $newtemplate =~ s/__stringtype_unspecified__/<attribute><code>EXTRA_OPTION_POSTGRESQL.stringtype<\/code><attribute>unspecified<\/attribute><\/attribute>\n/g;
-	    }
-	    else {
-	       $newtemplate =~ s/__stringtype_unspecified__//g;
-	    }
+            if ($stringtype_unspecified) {
+               $newtemplate =~ s/__stringtype_unspecified__/<attribute><code>EXTRA_OPTION_POSTGRESQL.stringtype<\/code><attribute>unspecified<\/attribute><\/attribute>\n/g;
+            }
+            else {
+               $newtemplate =~ s/__stringtype_unspecified__//g;
+            }
 
             $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
             $newincrementaltemplate =~ s/__sqlserver_database__/$sd/g;
@@ -976,30 +965,30 @@ sub generate_kettle
             $newincrementaltemplate =~ s/__sort_size__/$sort_size/g;
 
             if ($pforce_ssl)
-	    {
-		    $newincrementaltemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
-	    }
-	    else
-	    {
-		    $newincrementaltemplate =~ s/__pforce_ssl__//g;
-	    }
-	    if ($stringtype_unspecified) {
-	       $newincrementaltemplate =~ s/__stringtype_unspecified__/<attribute><code>EXTRA_OPTION_POSTGRESQL.stringtype<\/code><attribute>unspecified<\/attribute><\/attribute>\n/g;
-	    }
-	    else {
-	       $newincrementaltemplate =~ s/__stringtype_unspecified__//g;
-	    }
-	    # We have a bit of work to do on primary keys for the incremental template: we need them
+            {
+                    $newincrementaltemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
+            }
+            else
+            {
+                    $newincrementaltemplate =~ s/__pforce_ssl__//g;
+            }
+            if ($stringtype_unspecified) {
+               $newincrementaltemplate =~ s/__stringtype_unspecified__/<attribute><code>EXTRA_OPTION_POSTGRESQL.stringtype<\/code><attribute>unspecified<\/attribute><\/attribute>\n/g;
+            }
+            else {
+               $newincrementaltemplate =~ s/__stringtype_unspecified__//g;
+            }
+            # We have a bit of work to do on primary keys for the incremental template: we need them
             # to compare the tables…
             if (defined($refschema->{TABLES}->{$table}->{PK}->{COLS}))
             {
-	      my @pk=@{$refschema->{TABLES}->{$table}->{PK}->{COLS}};
-	      my $keys="";
-	      foreach my $pk(@pk)
-	      {
-		$keys.="<key>$pk</key>\n";
-	      }
-	      $newincrementaltemplate =~ s/__KEYS_MERGE__/$keys/g;
+              my @pk=@{$refschema->{TABLES}->{$table}->{PK}->{COLS}};
+              my $keys="";
+              foreach my $pk(@pk)
+              {
+                $keys.="<key>$pk</key>\n";
+              }
+              $newincrementaltemplate =~ s/__KEYS_MERGE__/$keys/g;
 
 	      my $sortkeys='';
               my $synckeys='';
@@ -1300,7 +1289,7 @@ sub add_column_to_table
         # It has already been declared before. We just need to find it
         $coltype = relabel_schemas($coltypeschema) . '.' . $coltype;
     }
-     if ($colqual)
+    if ($colqual)
     {
         if ($coltype eq 'xml')
         {
@@ -1319,15 +1308,15 @@ sub add_column_to_table
                 or die "Cannot parse colqual <$colqual>";
             $colqual = "$1";
         }
-		 }
+     }
 
-		# in case of a rowversion or timestamp columns, check if we want to keep it
-		if ($drop_rowversion
-					 and ($coltype eq 'rowversion' or $coltype eq 'timestamp'))
-		{
-				# do nothing
-				return;
-		}
+    # in case of a rowversion or timestamp columns, check if we want to keep it
+    if ($drop_rowversion
+	   and ($coltype eq 'rowversion' or $coltype eq 'timestamp'))
+    {
+       # do nothing
+       return;
+    }
 
     my $newtype =
         convert_type($coltype,   $colqual, $colname,
@@ -1454,12 +1443,11 @@ sub parse_dump
                     my $colisnull      =$7;
                     my $default        =$8;
                     add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
-										if (defined $default)
-										{
-											 store_default_value($schemaname,$tablename,$colname,$default,$line);
-										}
-								 }
-
+		    if (defined $default)
+		       {
+			  store_default_value($schemaname,$tablename,$colname,$default,$line);
+		       }
+		 }
 
                 # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
                 # So just put it as a varchar, and issue a warning is STDOUT
@@ -1589,57 +1577,55 @@ EOF
         ################################################################
         elsif ($line =~ /^CREATE SEQUENCE \[(.*)\]\.\[(.*)\]/)
         {
-			my $schemaname   = relabel_schemas($1);
-            my $orig_schema = $1;
-            my $seqname     = $2;
-            while (my $contline = read_and_clean($file))
-            {
-				if ($contline =~ /^\s*AS \[.*\]\s*$/)
-				{
-					next; # We don't care, sequences are always bigint in PostgreSQL
-				}
-				elsif ($contline =~ /^\s*START WITH (\d+)\s*$/)
-				{
-					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{START}=$1;
-				}
-				elsif ($contline =~ /^\s*INCREMENT BY (\d+)\s*$/)
-				{
-					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}=$1;
-				}
-				elsif ($contline =~ /^\s*MINVALUE (-?\d+)\s*$/)
-				{
-					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MIN}=$1;
-				}
-				elsif ($contline =~ /^\s*MAXVALUE (-?\d+)\s*$/)
-				{
-					$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MAX}=$1;
-				}
-				elsif ($contline =~ /^\s*(NO)?CACHE( \d+)?\s*$/)
-				{
-					if (defined $1)
-					{
-						# It's a no cache. Equivalent to CACHE = 1 in PostgreSQL
-						$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=1;
-					}
-					elsif (defined $2)
-					{
-						# We have a specified value
-						$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=$2;
-					}
-					else
-					{
-						# Cache, but not specified. SQL Server isn't very clear on the size of the cache. Let's say 100
-						$objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=100;
-					}
-				}
-				elsif ($contline =~ /^GO$/)
-				{
-					next MAIN;
-				}
-			}
-
-
-		}
+	   my $schemaname   = relabel_schemas($1);
+	   my $orig_schema = $1;
+	   my $seqname     = $2;
+	   while (my $contline = read_and_clean($file))
+	   {
+	      if ($contline =~ /^\s*AS \[.*\]\s*$/)
+	      {
+		 next; # We don't care, sequences are always bigint in PostgreSQL
+	      }
+	      elsif ($contline =~ /^\s*START WITH (\d+)\s*$/)
+	      {
+		 $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{START}=$1;
+	      }
+	      elsif ($contline =~ /^\s*INCREMENT BY (\d+)\s*$/)
+	      {
+		 $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}=$1;
+	      }
+	      elsif ($contline =~ /^\s*MINVALUE (-?\d+)\s*$/)
+	      {
+		 $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MIN}=$1;
+	      }
+	      elsif ($contline =~ /^\s*MAXVALUE (-?\d+)\s*$/)
+	      {
+		 $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MAX}=$1;
+	      }
+	      elsif ($contline =~ /^\s*(NO)?CACHE( \d+)?\s*$/)
+	      {
+		 if (defined $1)
+		 {
+		    # It's a no cache. Equivalent to CACHE = 1 in PostgreSQL
+		    $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=1;
+		 }
+		 elsif (defined $2)
+		 {
+		    # We have a specified value
+		    $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=$2;
+		 }
+		 else
+		 {
+		    # Cache, but not specified. SQL Server isn't very clear on the size of the cache. Let's say 100
+		    $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{CACHE}=100;
+		 }
+	      }
+	      elsif ($contline =~ /^GO$/)
+	      {
+		 next MAIN;
+	      }
+	   }
+	}
         elsif ($line =~ /^CREATE SCHEMA \[(.*)\]/)
         {
             $objects->{SCHEMAS}->{relabel_schemas($1)} = undef
@@ -1849,21 +1835,21 @@ EOF
             }
             if (defined $maybecols)
             {
-				my @maybecols = split (',',$maybecols);
-				foreach my $coldef(@maybecols)
-				{
-					$coldef=~/\[(.*)\](?: (ASC|DESC))?/ or die "Cannot understand coldef $coldef in index";
-                    if (defined $2)
-                    {
-                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
-                                ->{INDEXES}->{$idxname}->{COLS}}, ("$1 $2");
-                    }
-                    else
-                    {
-                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
-                                ->{INDEXES}->{$idxname}->{COLS}}, ("$1");
-                    }
-				}
+	       my @maybecols = split (',',$maybecols);
+	       foreach my $coldef(@maybecols)
+	       {
+		  $coldef=~/\[(.*)\](?: (ASC|DESC))?/ or die "Cannot understand coldef $coldef in index";
+		  if (defined $2)
+		  {
+		     push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+			       ->{INDEXES}->{$idxname}->{COLS}}, ("$1 $2");
+		  }
+		  else
+		  {
+		     push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+			       ->{INDEXES}->{$idxname}->{COLS}}, ("$1");
+		  }
+	       }
             }
             while (my $idx = read_and_clean($file))
             {
@@ -1906,9 +1892,9 @@ EOF
                             ->{INDEXES}->{$idxname}->{WHERE}="(".$filter.")";
                 }
             }
-				}
+	 }
 
-				# we do not take migrate spatial indexes
+	# we do not take migrate spatial indexes
         elsif ($line =~ /^CREATE SPATIAL INDEX/)
         {
             my $def=$line;
@@ -1927,8 +1913,8 @@ EOF
 
             $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}->{INDEXES}
                     ->{$idxname}->{DISABLE} = 1;
-				}
-				
+	 }
+
         # Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
         # PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
         elsif ($line =~
@@ -1947,7 +1933,7 @@ EOF
             add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
             if (defined $default)
             {
-		    store_default_value($schemaname,$tablename,$colname,$default,$line);
+	       store_default_value($schemaname,$tablename,$colname,$default,$line);
             }
         }
 
@@ -2026,13 +2012,13 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \((\(?(?:-)?\d+(?:\.\d+)?\))?\) FOR \[(.*)\]/
             )
         {
-		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
+	   store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
         elsif ($line =~
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(('.*')\) FOR \[(.*)\]/
             )
         {
-		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
+	   store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
 
         # Yes, we also get default NULL (what for ? :) ), and sometimes with a different case
@@ -2040,7 +2026,7 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(((?i)NULL)\) FOR \[(.*)\]/
             )
         {
-		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
+	   store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
 
         # And there are also constraints with functions and other strange code in them. Put them as unsure
@@ -2048,7 +2034,7 @@ EOF
             /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD\s*(?:CONSTRAINT \[.*\])?\s*DEFAULT \(\(?(.*)\)?\) FOR \[(.*)\]/
             )
         {
-		store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
+	   store_default_value(relabel_schemas($1),$2,$4,$3,$line); # schema,table,col,value
         }
 
         # FK constraint. It's multi line, we have to look for references, and what to do on update, delete, etc (I have only seen delete cascade for now)
@@ -2249,13 +2235,13 @@ EOF
             }
         }
 
-				# Save variable for future use
+	# Save variable for future use
         elsif ($line =~ /^:setvar\s+(\S+)\s+"(.*)"/)
-				{
-					 my $varname = $1;
-					 my $varvalue = $2;
-					 $objects->{VARIABLES}->{$varname} = $varvalue;
-					 next;
+	{
+	   my $varname = $1;
+	   my $varvalue = $2;
+	   $objects->{VARIABLES}->{$varname} = $varvalue;
+	   next;
         }
 
         # Ignore USE, GO, and things that have no meaning for postgresql
@@ -2302,57 +2288,58 @@ EOF
         # Also ignore version tests
         elsif ($line =~ /^IF EXISTS|^IF \(\@\@microsoftversion/i)
         {
-			# just read until next go (or EOF)
-			while (defined $line and $line !~ /^GO$/)
-			{
-				$line =read_and_clean($file);
-			}
+	   # just read until next go (or EOF)
+	   while (defined $line and $line !~ /^GO$/)
+	   {
+	      $line =read_and_clean($file);
+	   }
         }
         elsif ($line =~ /^IF NOT EXISTS/i)
         {
-			# Just ignore the line
-			next;
-
+	   # Just ignore the line
+	   next;
         }
 
-
-        # Ignore CREATE DATABASE: we hope that we are given a single database as an option. It is multiline.
+        # Ignore CREATE DATABASE: we hope that we are given a single database as
+	# an option. It is multiline.
         # Ignore everything until next GO
-        # Ignore ALTER DATABASE for the same reason. The given parameters have no meaning in PG anyway
-		# Except for SET ARITHABORT OFF, for which we print a warning because it probably means the database contents are weird (10/0 = null)
-		elsif ($line =~
-			/^ALTER DATABASE.* SET ARITHABORT OFF/)
-		{
-			print STDERR "WARNING: the source database is set as ARITHABORT OFF.\n";
-			print STDERR "         It means that for SQL Server, 10/0 = NULL.\n";
-			print STDERR "         You'll probably have problems porting that to PostgreSQL.\n";
-			while ($line !~ /^GO$/)
-			{
-				$line =read_and_clean($file);
-			}
-				# We read everything in the CREATE DATABASE. Back to work !
-			next;
-		}
-		# Sometimes, when there is a ALTER DATABASE SET ARITHABORT OFF, there are SET ARITHABORT ON. Just ignore them
-		elsif ($line =~ /^SET ARITHABORT ON/)
-		{
-			next;
-		}
-		# Sometimes we meet this: SET CONCAT_NULL_YIELDS_NULL ON. That's the normal behaviour for a SQL database. Just ignore
-		elsif ($line =~ /^SET CONCAT_NULL_YIELDS_NULL ON/)
-		{
-			next;
-		}
-		# Same more or less
-		elsif ($line =~ /^SET ANSI_WARNINGS ON/)
-		{
-			next;
-		}
-		# What the hell does this do in a dump ???
-		elsif ($line =~ /^SET NUMERIC_ROUNDABORT OFF/)
-		{
-			next;
-		}
+        # Ignore ALTER DATABASE for the same reason. The given parameters have no
+	# meaning in PG anyway
+	# Except for SET ARITHABORT OFF, for which we print a warning because it
+	# probably means the database contents are weird (10/0 = null)
+	elsif ($line =~
+		  /^ALTER DATABASE.* SET ARITHABORT OFF/)
+	{
+	   print STDERR "WARNING: the source database is set as ARITHABORT OFF.\n";
+	   print STDERR "         It means that for SQL Server, 10/0 = NULL.\n";
+	   print STDERR "         You'll probably have problems porting that to PostgreSQL.\n";
+	   while ($line !~ /^GO$/)
+	   {
+	      $line =read_and_clean($file);
+	   }
+	   # We read everything in the CREATE DATABASE. Back to work !
+	   next;
+	}
+	# Sometimes, when there is a ALTER DATABASE SET ARITHABORT OFF, there are SET ARITHABORT ON. Just ignore them
+	elsif ($line =~ /^SET ARITHABORT ON/)
+	{
+	   next;
+	}
+	# Sometimes we meet this: SET CONCAT_NULL_YIELDS_NULL ON. That's the normal behaviour for a SQL database. Just ignore
+	elsif ($line =~ /^SET CONCAT_NULL_YIELDS_NULL ON/)
+	{
+	   next;
+	}
+	# Same more or less
+	elsif ($line =~ /^SET ANSI_WARNINGS ON/)
+	{
+	   next;
+	}
+	# What the hell does this do in a dump ???
+	elsif ($line =~ /^SET NUMERIC_ROUNDABORT OFF/)
+	{
+	   next;
+	}
 
         # Same for tests about full text search.
         elsif ($line =~
@@ -2452,12 +2439,12 @@ sub generate_schema
         }
     }
 
-		# Set psql variables in UNSURE
-		foreach my $varname (sort keys %{$objects->{VARIABLES}})
-		{
-			 print UNSURE "\\set $varname '$objects->{VARIABLES}->{$varname}'\n";
-		}
-		
+    # Set psql variables in UNSURE
+    foreach my $varname (sort keys %{$objects->{VARIABLES}})
+    {
+       print UNSURE "\\set $varname '$objects->{VARIABLES}->{$varname}'\n";
+    }
+
     # For the rest, we iterate over schemas, except for array types (no point in complicating this)
     # The tables, columns, etc... will be created in the before script, so there is no dependancy
     # problem with constraints, that will be in the after script, except foreign keys which depend on unique indexes
@@ -2524,34 +2511,34 @@ sub generate_schema
         {
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
             print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence);
-				if (defined $seqref->{STEP})
-				{
-					print AFTER " INCREMENT BY ",$seqref->{STEP};
-				}
-				if (defined $seqref->{MIN})
-				{
-					print AFTER " MINVALUE ",$seqref->{MIN};
-				}
-				if (defined $seqref->{MAX})
-				{
-					print AFTER " MAXVALUE ",$seqref->{MAX};
-				}
-				if (defined $seqref->{START})
-				{
-					print AFTER " START WITH ",$seqref->{START};
-				}
-				if (defined $seqref->{CACHE})
-				{
-					print AFTER " CACHE ",$seqref->{CACHE};
-				}
-				if (defined $seqref->{OWNERTABLE})
-				{
-					print AFTER " OWNED BY ",format_identifier($seqref->{OWNERSCHEMA}),
-					            '.',format_identifier($seqref->{OWNERTABLE}),
-					            '.',format_identifier($seqref->{OWNERCOL});
-				}
-				print AFTER ";\n";
-        }
+	    if (defined $seqref->{STEP})
+	    {
+	       print AFTER " INCREMENT BY ",$seqref->{STEP};
+	    }
+	    if (defined $seqref->{MIN})
+	    {
+	       print AFTER " MINVALUE ",$seqref->{MIN};
+	    }
+	    if (defined $seqref->{MAX})
+	    {
+	       print AFTER " MAXVALUE ",$seqref->{MAX};
+	    }
+	    if (defined $seqref->{START})
+	    {
+	       print AFTER " START WITH ",$seqref->{START};
+	    }
+	    if (defined $seqref->{CACHE})
+	    {
+	       print AFTER " CACHE ",$seqref->{CACHE};
+	    }
+	    if (defined $seqref->{OWNERTABLE})
+	    {
+	       print AFTER " OWNED BY ",format_identifier($seqref->{OWNERSCHEMA}),
+		  '.',format_identifier($seqref->{OWNERTABLE}),
+		  '.',format_identifier($seqref->{OWNERCOL});
+	    }
+	    print AFTER ";\n";
+	 }
 
         # Now PK. We have to go through all tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -2636,42 +2623,42 @@ sub generate_schema
                        $index_created = 1;
                    }
                    else
+		   {
+		      # this is either a disabled index or an index with a where declaration
+		      if (defined $idxref->{WHERE})
 		      {
-			 # this is either a disabled index or an index with a where declaration
-			 if (defined $idxref->{WHERE})
-			    {
-			       print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
-			       if ($idxref->{DISABLE})
-				  {
-				     # if disabled, will be on the same line
-				     $idxdef .= " ";
-				  }
-			       else
-				  {
-				     # otherwise, write condition on a new line
-				     $idxdef .= "\n";
-				  }
-			       $idxdef .= "WHERE (" . convert_transactsql_code($idxref->{WHERE}) . ")";
-			    }
-			 $idxdef .= ";\n";
-			 print UNSURE $idxdef;
-			 # the possible comment would go to unsure file
-			 $index_created = 2;
+			 print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
+			 if ($idxref->{DISABLE})
+			 {
+			    # if disabled, will be on the same line
+			    $idxdef .= " ";
+			 }
+			 else
+			 {
+			    # otherwise, write condition on a new line
+			    $idxdef .= "\n";
+			 }
+			 $idxdef .= "WHERE (" . convert_transactsql_code($idxref->{WHERE}) . ")";
 		      }
+		      $idxdef .= ";\n";
+		      print UNSURE $idxdef;
+		      # the possible comment would go to unsure file
+		      $index_created = 2;
+		   }
                    
-                    # Produce the comments for indexes
-                    if (defined $idxref->{COMMENT})
-                    {
-                       my $idxcomment = "COMMENT ON INDEX ". format_identifier($schema) . '.' . format_identifier($index) . " IS '" . $idxref->{COMMENT} . "';\n";
-                       if ($index_created == 1)
-                       {
-                          print AFTER $idxcomment;
-                       }
-                       elsif ($index_created == 2)
-                       {
-                          print UNSURE $idxcomment;
-                       }
-                    }
+		   # Produce the comments for indexes
+		   if (defined $idxref->{COMMENT})
+		   {
+		      my $idxcomment = "COMMENT ON INDEX ". format_identifier($schema) . '.' . format_identifier($index) . " IS '" . $idxref->{COMMENT} . "';\n";
+		      if ($index_created == 1)
+		      {
+			 print AFTER $idxcomment;
+		      }
+		      elsif ($index_created == 2)
+		      {
+			 print UNSURE $idxcomment;
+		      }
+		   }
 
                 }
              }
@@ -2735,11 +2722,11 @@ sub generate_schema
                     }
                 }
                 elsif ($constraint->{TYPE} eq 'CHECK')
-		   {
-		      $consdef .= " CHECK (" . convert_transactsql_code($constraint->{TEXT}) . ");\n";
-		      print UNSURE $consdef
-			 ;    # Check constraints are SQL, so cannot be sure
-		   }
+		{
+		   $consdef .= " CHECK (" . convert_transactsql_code($constraint->{TEXT}) . ");\n";
+		   print UNSURE $consdef
+		      ;    # Check constraints are SQL, so cannot be sure
+		}
                 elsif ($constraint->{TYPE} eq 'CHECK_CITEXT')
                 {
                     # These have been generated here, for citext mostly. So we know their syntax is ok
@@ -2772,10 +2759,11 @@ sub generate_schema
             foreach my $constraint (
                              @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
             {
-		    next unless defined ($constraint->{COMMENT});
-                    print UNSURE "COMMENT ON CONSTRAINT "  . format_identifier($constraint->{NAME}) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " IS '"
-                    . $constraint->{COMMENT} . "';\n";
-
+	       next unless defined ($constraint->{COMMENT});
+	       print UNSURE "COMMENT ON CONSTRAINT "
+		  . format_identifier($constraint->{NAME}) . " ON "
+		  . format_identifier($schema) . '.' . format_identifier($table)
+		  . " IS '" . $constraint->{COMMENT} . "';\n";
 	    }
 	}
     }
@@ -2791,17 +2779,18 @@ sub generate_schema
             {
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
                 next unless (defined $colref->{DEFAULT});
-								my $default_value = $colref->{DEFAULT}->{VALUE};
-								if ($default_value =~ /\(\$\((\S+)\)\)/)
-								{
-									 $default_value = ":$1";
-								}
+		my $default_value = $colref->{DEFAULT}->{VALUE};
+		if ($default_value =~ /\(\$\((\S+)\)\)/)
+		{
+		   $default_value = ":$1";
+		}
                 my $definition =
-									 "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table)
-									 . " ALTER COLUMN " . format_identifier($col)
-									 . " SET DEFAULT " . $default_value . ";\n";
+		   "ALTER TABLE " . format_identifier($schema) . '.'
+		   . format_identifier($table)
+		   . " ALTER COLUMN " . format_identifier($col)
+		   . " SET DEFAULT " . $default_value . ";\n";
                 if ($colref->{DEFAULT}->{UNSURE})
-                {
+		{
                     print UNSURE $definition;
                 }
                 else
@@ -2817,11 +2806,14 @@ sub generate_schema
     {
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
-			my $seqref = $refschema->{SEQUENCES}->{$sequence};
-			# This may not be an identity. Skip it then
-			next unless defined ($seqref->{OWNERCOL});
-
-            print AFTER "select setval('" . format_identifier($schema) . '.' . format_identifier($sequence) . "',(select max(". format_identifier($seqref->{OWNERCOL}) .") from " . format_identifier($seqref->{OWNERSCHEMA}) . '.'. format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
+	   my $seqref = $refschema->{SEQUENCES}->{$sequence};
+	   # This may not be an identity. Skip it then
+	   next unless defined ($seqref->{OWNERCOL});
+	   print AFTER "select setval('" . format_identifier($schema) . '.'
+	      . format_identifier($sequence) . "',(select max("
+	      . format_identifier($seqref->{OWNERCOL}) .") from "
+	      . format_identifier($seqref->{OWNERSCHEMA}) . '.'
+	      . format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
         }
     }
 
@@ -2842,8 +2834,10 @@ sub generate_schema
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
                 if (defined($colref->{COMMENT}))
                 {
-                    print AFTER "COMMENT ON COLUMN " . format_identifier($schema) . '.' . format_identifier($table) . '.' . format_identifier($col) . " IS '"
-                        . $colref->{COMMENT} . "';\n";
+		   print AFTER "COMMENT ON COLUMN " . format_identifier($schema)
+		      . '.' . format_identifier($table) . '.'
+		      . format_identifier($col) . " IS '"
+		      . $colref->{COMMENT} . "';\n";
                 }
             }
         }
@@ -3044,7 +3038,7 @@ my $options = GetOptions(
 	 "sort_size=i"             => \$sort_size,
 	 "use_pk_if_possible=s"    => \$use_pk_if_possible,
 	 "ignore_errors"           => \$ignore_errors,
-	 "pforce_ssl"		           => \$pforce_ssl,
+	 "pforce_ssl"	           => \$pforce_ssl,
 	 "stringtype_unspecified"  => \$stringtype_unspecified
 );
 
