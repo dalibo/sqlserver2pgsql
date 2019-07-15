@@ -1454,43 +1454,38 @@ sub parse_dump
                     my $colisnull      =$7;
                     my $default        =$8;
                     add_column_to_table($schemaname,$tablename,$colname,$coltypeschema,$coltype,$colqual,$isidentity,$colisnull);
-		    if (defined $default)
-		       {
-			  store_default_value($schemaname,$tablename,$colname,$default,$line);
-		       }
-		 }
+                    if (defined $default) {
+                       store_default_value($schemaname,$tablename,$colname,$default,$line);
+                    }
+                 }
 
-                # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
-                # So just put it as a varchar, and issue a warning in STDOUT
-		# FIXME this should exist in PG12
-                elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)/)
-                {
-                    # We just get the column name
-                    my $colnumber=next_col_pos($schemaname,$tablename);
-                    my $colname = $1;
-                    my $code    = $2;
-                    my $coltype = 'varchar';
-                    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{POS} = $colnumber;
-                    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{TYPE} = $coltype;
-                    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{NOT_NULL} = 0;
+                elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)/) {
+                   # We just get the column name
+                   my $colnumber=next_col_pos($schemaname,$tablename);
+                   my $colname = $1;
+                   my $code    = $2;
+                   my $coltype = 'varchar';
+                   $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                      ->{$colname}->{POS} = $colnumber;
+                   $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                      ->{$colname}->{TYPE} = $coltype;
+                   $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                      ->{$colname}->{NOT_NULL} = 0;
 
-                    # Big fat warning
-                    print STDERR
-                        "Warning: There is a calculated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
-                    print STDERR
-                        "\tFor now it has been declared as a varchar in PG, so that the values can be copied\n";
-                    print STDERR
-                        "\tYou should change its type manually in the dump (sorry for that),\n";
-                    print STDERR "\tA trigger has been written in the unsure file. It probably won't work as is.\n";
-                    print STDERR "\tPlease review it.\n";
+                   # Big fat warning
+                   print STDERR
+                      "Warning: There is a generated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
+                   print STDERR
+                      "\tFor now it has been declared as a varchar in PG, so that the values can be copied\n";
+                   print STDERR
+                      "\tYou should change its type manually in the dump (sorry for that),\n";
+                   print STDERR "\tA trigger has been written in the unsure file. It probably won't work as is.\n";
+                   print STDERR "\tPlease review it.\n";
 
-                    # Try to correct what can be corrected from the AS : replace [COL] with NEW.COL
-                    # It is obviously not going to work for anything a bit complicated
-                    $code =~ s/\[(.*?)\]/NEW.$1/g;
-                    my $triggerfunc = <<EOF;
+                   # Try to correct what can be corrected from the AS : replace [COL] with NEW.COL
+                   # It is obviously not going to work for anything a bit complicated
+                   $code =~ s/\[(.*?)\]/NEW.$1/g;
+                   my $triggerfunc = <<EOF;
 begin
   NEW.$colname=$code;
   RETURN NEW;
@@ -2704,7 +2699,7 @@ sub generate_schema
 		      # the possible comment would go to unsure file
 		      $index_created = 2;
 		   }
-                   
+
 		   # Produce the comments for indexes
 		   if (defined $idxref->{COMMENT})
 		   {
