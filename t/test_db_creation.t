@@ -5,6 +5,7 @@
     cd $WORK_DIR
     for test_dir in * ; do
 			cd $test_dir
+			cat command_line
 			createdb reg
 			psql reg < before.sql
 			psql reg < after.sql
