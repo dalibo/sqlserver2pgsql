@@ -1754,13 +1754,18 @@ EOF
 
 		       # format view query columns
 		       foreach my $view_query_col (split (',',$query_columns)) {
-			  if ($view_query_col =~ /^.*\+\s*('.+')\s*\+.*$/i) {
+			  if ($view_query_col
+				 =~ /^.*\+\s*N?'.*'\s*|\s*N?'.*'\s*\+.*|.*\+\s*N?'.*'\s*\+.*$/i) {
 			     # PG use '||' to concatenate strings, change '+' to '||'
 			     @string_column = ();
-			     while ($view_query_col =~ /^('.*?'|[^']+?)\s*\+\s*(.*)$/i) {
-				push @string_column, $1;
+			     my $lhs;
+			     while ($view_query_col =~ /^\s*(N?'.*?'|[^']+?)\s*\+\s*(.*)$/i) {
+				$lhs = $1;
 				$view_query_col = $2;
+				$lhs = $1 if ($lhs =~ /N('.*?')/);
+				push @string_column, $lhs;
 			     }
+			     $view_query_col = $1 if ($view_query_col =~ /N('.*?')/);
 			     push @string_column, $view_query_col;
 			     push @rebuilt_query_columns, join('||', @string_column);
 			  }
