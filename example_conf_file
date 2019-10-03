@@ -6,6 +6,9 @@ before file=/tmp/before
 after file=/tmp/after
 unsure file=/tmp/unsure
 
+# File listing old and new column names, by table
+namemap file=/tmp/colnamemap
+
 kettle directory=/tmp/kettle # Comment this line if you don't want a kettle script to be generated
 # These are ignored as long as kettle is not set
 sql server database=foo
