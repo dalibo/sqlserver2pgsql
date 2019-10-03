@@ -41,6 +41,7 @@ our $kettle;
 our $before_file;
 our $after_file;
 our $unsure_file;
+our $namemap_file;
 our $case_treatment=1; # 1=convert to lowercase, 2=convert to snake_case, 0 do nothing
 our $ignore_errors;
 our $keep_identifier_case;
@@ -94,6 +95,7 @@ sub parse_conf_file
       'before file'              => 'before_file',
       'after file'               => 'after_file',
       'unsure file'              => 'unsure_file',
+      'namemap file'             => 'namemap_file',
       'sql server dump filename' => 'filename',
       'case insensitive'         => 'case_insensitive',
       'no relabel dbo'           => 'norelabel_dbo',
@@ -712,7 +714,7 @@ sub usage
 {
     print qq{
 Usage: 
-    sqlserver2pgsql.pl -b BEFORE_FILE -a AFTER_FILE -u UNSURE_FILE -f SQLSERVER_SCHEMA_FILE
+    sqlserver2pgsql.pl -b BEFORE_FILE -a AFTER_FILE -u UNSURE_FILE -f SQLSERVER_SCHEMA_FILE -map NAMEMAP_FILE
 
 Description:
 
@@ -737,6 +739,9 @@ Mandatory options:
     -u UNSURE_SCRIPT
             contains objects we attempt to migrate, but cannot guarantee, such 
             as views or complex indexes.
+
+    -map NAMEMAP_FILE
+            tab delimited text file with old and new column names, by table
 
 Options:
 
@@ -2403,12 +2408,17 @@ EOF
 # We generate alphabetically, to make things less random (this data comes from a hash)
 sub generate_schema
 {
-    my ($before_file, $after_file, $unsure_file) = @_;
+    my ($before_file, $after_file, $unsure_file, $namemap_file) = @_;
 
     # Open the output files (except kettle, we'll do that at the end)
     open BEFORE, ">:utf8", $before_file or die "Cannot open $before_file, $!";
     open AFTER,  ">:utf8", $after_file  or die "Cannot open $after_file, $!";
     open UNSURE, ">:utf8", $unsure_file or die "Cannot open $unsure_file, $!";
+    if ($namemap_file) 
+    {
+	    open NAMEMAP, ">:utf8", $namemap_file or die "Cannot open $namemap_file, $!";
+    }
+    
     print BEFORE "\\set ON_ERROR_STOP\n";
     print BEFORE "\\set ECHO all\n";
     print BEFORE "BEGIN;\n";
@@ -2419,6 +2429,11 @@ sub generate_schema
     print AFTER "\\set ECHO all\n";
     print UNSURE "BEGIN;\n";
 
+    if ($namemap_file) 
+    {
+        print NAMEMAP "Schema\tTable\tOldName\tNewName\n";
+    }
+    
     # Are we case insensitive ? We have to install citext then
     # Won't work on pre-9.1 database. But as this is a migration tool
     # if someone wants to start with an older version, it's their problem :)
@@ -2499,12 +2514,19 @@ sub generate_schema
 
             {
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
-                my $coldef = format_identifier($col) . " " . $colref->{TYPE};
+                my $newcolname = format_identifier($col);
+                my $coldef = $newcolname . " " . $colref->{TYPE};
                 if ($colref->{NOT_NULL})
                 {
                     $coldef .= ' NOT NULL';
                 }
                 push @colsdef, ($coldef);
+                
+                if ($namemap_file) 
+                {
+                    print NAMEMAP $schema . "\t" . $table . "\t" . $col . "\t" . $newcolname . "\n";
+                }
+                    
             }
             print BEFORE "CREATE TABLE " . format_identifier($schema) . '.' . format_identifier($table) . "( \n\t"
                 . join(",\n\t", @colsdef)
@@ -2914,6 +2936,11 @@ sub generate_schema
     close AFTER;
     close UNSURE;
 
+    if ($namemap_file) 
+    {
+        close NAMEMAP;
+    }
+
 }
 
 # This sub tries to avoid naming conflicts:
@@ -3025,6 +3052,7 @@ my $options = GetOptions(
 	 "u=s"    => \$unsure_file,
 	 "h"      => \$help,
 	 "conf=s" => \$conf_file,
+	 "map=s"  => \$namemap_file,
 	 "sd=s"   => \$sd,
 	 "sh=s"   => \$sh,
 	 "si=s"   => \$si,
@@ -3068,6 +3096,11 @@ if ($conf_file)
 
 # Set default values for anything not set yet
 set_default_conf_values();
+
+if (not $namemap_file)
+{
+    $namemap_file = "";
+}
 
 # We have no before, after, or unsure
 if (   not $before_file
@@ -3119,7 +3152,7 @@ parse_dump();
 resolve_name_conflicts();
 
 # Create the 3 schema files for PostgreSQL
-generate_schema($before_file, $after_file, $unsure_file);
+generate_schema($before_file, $after_file, $unsure_file, $namemap_file);
 
 # If asked, create the kettle job
 if ($kettle and (defined $ENV{'HOME'} or defined $ENV{'USERPROFILE'}))
