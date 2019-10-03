@@ -2318,6 +2318,16 @@ sub parse_dump
             next;
         }
 
+        # Ignore grant statements
+        elsif ($line =~ /^GRANT ([^ ]+) ON (.+) TO \[[^ ]+\]/)
+        {
+            next;
+        }
+        elsif ($line =~ /^GRANT VIEW ([^ ]+) ON (.+) TO \[[^ ]+\]/)
+        {
+            next;
+        }
+
         elsif ($line =~ /^ALTER (ROLE|USER)/)
         {
             next;
