@@ -52,6 +52,7 @@ our $sort_size;
 our $use_pk_if_possible;
 our $pforce_ssl;
 our $stringtype_unspecified;
+our $create_generated_always;
 
 # Will be set if we detect GIS objects
 our $requires_postgis=0;
@@ -108,6 +109,7 @@ sub parse_conf_file
       'ignore errors'            => 'ignore_errors',
       'postgresql force ssl'     => 'pforce_ssl',
       'stringtype unspecified'   => 'stringtype_unspecified',
+      'create generated always'   => 'create_generated_always',
    );
 
    # Open the conf file or die
@@ -158,6 +160,7 @@ sub set_default_conf_values
     $sp=1433 unless (defined ($sp));
     $pforce_ssl=0 unless (defined ($pforce_ssl));
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
+    $create_generated_always=0 unless (defined ($create_generated_always));
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -2510,35 +2513,63 @@ sub generate_schema
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
-            print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence);
-	    if (defined $seqref->{STEP})
-	    {
-	       print AFTER " INCREMENT BY ",$seqref->{STEP};
-	    }
-	    if (defined $seqref->{MIN})
-	    {
-	       print AFTER " MINVALUE ",$seqref->{MIN};
-	    }
-	    if (defined $seqref->{MAX})
-	    {
-	       print AFTER " MAXVALUE ",$seqref->{MAX};
-	    }
-	    if (defined $seqref->{START})
-	    {
-	       print AFTER " START WITH ",$seqref->{START};
-	    }
-	    if (defined $seqref->{CACHE})
-	    {
-	       print AFTER " CACHE ",$seqref->{CACHE};
-	    }
-	    if (defined $seqref->{OWNERTABLE})
-	    {
-	       print AFTER " OWNED BY ",format_identifier($seqref->{OWNERSCHEMA}),
-		  '.',format_identifier($seqref->{OWNERTABLE}),
-		  '.',format_identifier($seqref->{OWNERCOL});
-	    }
-	    print AFTER ";\n";
-	 }
+            
+            if ($create_generated_always and defined $seqref->{OWNERTABLE})
+            {
+                # Add a statement of the form
+                # ALTER TABLE "schema"."table_name" ALTER COLUMN "column_name" ADD GENERATED ALWAYS AS IDENTITY (start 1000);
+
+                print AFTER "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($seqref->{OWNERTABLE}) . " ";
+                print AFTER "ALTER COLUMN " . format_identifier($seqref->{OWNERCOL}) . " ADD GENERATED ALWAYS AS IDENTITY";
+                
+                if (defined $seqref->{START} or defined $seqref->{STEP})
+                {
+                    print AFTER " (";
+                    if (defined $seqref->{START})
+            	    {
+            	       print AFTER " START WITH ",$seqref->{START};
+            	    }
+            	    
+            	    if (defined $seqref->{STEP})
+            	    {
+            	       print AFTER " INCREMENT BY ",$seqref->{STEP};
+            	    }          	    
+                    print AFTER ")";
+        	    }        	    
+            }
+            else 
+            {
+                print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence);
+        	    if (defined $seqref->{STEP})
+        	    {
+        	       print AFTER " INCREMENT BY ",$seqref->{STEP};
+        	    }
+        	    if (defined $seqref->{MIN})
+        	    {
+        	       print AFTER " MINVALUE ",$seqref->{MIN};
+        	    }
+        	    if (defined $seqref->{MAX})
+        	    {
+        	       print AFTER " MAXVALUE ",$seqref->{MAX};
+        	    }
+        	    if (defined $seqref->{START})
+        	    {
+        	       print AFTER " START WITH ",$seqref->{START};
+        	    }
+        	    if (defined $seqref->{CACHE})
+        	    {
+        	       print AFTER " CACHE ",$seqref->{CACHE};
+        	    }
+        	    if (defined $seqref->{OWNERTABLE})
+        	    {
+        	       print AFTER " OWNED BY ",format_identifier($seqref->{OWNERSCHEMA}),
+            		  '.',format_identifier($seqref->{OWNERTABLE}),
+            		  '.',format_identifier($seqref->{OWNERCOL});
+        	    }
+        	}
+        	
+    	    print AFTER ";\n";
+    	 }
 
         # Now PK. We have to go through all tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -2790,12 +2821,20 @@ sub generate_schema
 		   . " ALTER COLUMN " . format_identifier($col)
 		   . " SET DEFAULT " . $default_value . ";\n";
                 if ($colref->{DEFAULT}->{UNSURE})
-		{
+		        {
                     print UNSURE $definition;
                 }
                 else
                 {
-                    print AFTER $definition;
+                    if ($create_generated_always and ($definition =~ /nextval.+_seq/i)) 
+                    {
+                        # Skip this set default item
+                    }
+                    else 
+                    {
+                        print AFTER $definition;
+                    }
+                        
                 }
             }
         }
@@ -2806,14 +2845,15 @@ sub generate_schema
     {
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
-	   my $seqref = $refschema->{SEQUENCES}->{$sequence};
-	   # This may not be an identity. Skip it then
-	   next unless defined ($seqref->{OWNERCOL});
-	   print AFTER "select setval('" . format_identifier($schema) . '.'
-	      . format_identifier($sequence) . "',(select max("
-	      . format_identifier($seqref->{OWNERCOL}) .") from "
-	      . format_identifier($seqref->{OWNERSCHEMA}) . '.'
-	      . format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
+    	   my $seqref = $refschema->{SEQUENCES}->{$sequence};
+    	   # This may not be an identity. Skip it then
+    	   next unless defined ($seqref->{OWNERCOL});
+    	   next if defined ($create_generated_always);
+    	   print AFTER "select setval('" . format_identifier($schema) . '.'
+    	      . format_identifier($sequence) . "',(select max("
+    	      . format_identifier($seqref->{OWNERCOL}) .") from "
+    	      . format_identifier($seqref->{OWNERSCHEMA}) . '.'
+    	      . format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
         }
     }
 

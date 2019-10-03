@@ -29,6 +29,7 @@ convert numeric to int=1 # set it to 0 to keep numeric(xx,0) as numeric(xx,0). W
 relabel schemas=dbo=>foo;schema1=>bar
 keep identifier case=1 # keep case of database objects
 validate constraints = yes # yes, after or no, should the constraints be validated by the dump ? (yes=validate during load, after after the load, no keep invalidated)
+#create generated always=1   # When defined, create CREATE GENERATED ALWAYS statements instead of CREATE SEQUENCE statements
 
 # Incremental job
 sort size=10000 # drives the amount of memory and temporary files that will be created by an incremental job
