@@ -485,6 +485,11 @@ sub format_identifier
     croak "identifier not defined in format_identifier" unless (defined $identifier);
     $identifier=rename_identifier($identifier);
 
+    if (length($identifier) > 63)
+    {
+        print STDERR "WARNING: $identifier is more than 63 characters long; PostgreSQL will truncate the name internally\n";
+    }
+    
     # Now, we protect the identifier (similar to quote_ident in PG)
     $identifier=~ s/"/""/g;
     $identifier='"'.$identifier.'"';
