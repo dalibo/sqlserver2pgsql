@@ -52,6 +52,7 @@ our $sort_size;
 our $use_pk_if_possible;
 our $pforce_ssl;
 our $stringtype_unspecified;
+our $skip_citext_length_check;
 
 # Will be set if we detect GIS objects
 our $requires_postgis=0;
@@ -108,6 +109,7 @@ sub parse_conf_file
       'ignore errors'            => 'ignore_errors',
       'postgresql force ssl'     => 'pforce_ssl',
       'stringtype unspecified'   => 'stringtype_unspecified',
+      'skip citext length check'   => 'skip_citext_length_check',
    );
 
    # Open the conf file or die
@@ -158,6 +160,7 @@ sub set_default_conf_values
     $sp=1433 unless (defined ($sp));
     $pforce_ssl=0 unless (defined ($pforce_ssl));
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
+    $skip_citext_length_check=0 unless (defined ($skip_citext_length_check));
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -326,7 +329,7 @@ sub convert_type
         $rettype = "citext";
 
         # Do we have a SQL qualifier ? (we'll have to do check constraints then)
-        if ($sqlqual)
+        if ($sqlqual and not defined($skip_citext_length_check) or $sqlqual and $skip_citext_length_check == 0)
         {
 
             # Check we have a table name and a colname, or a typname
