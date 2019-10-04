@@ -2421,7 +2421,7 @@ sub generate_schema
 
     if ($namemap_file) 
     {
-        print NAMEMAP "Schema\tTable\tOldName\tNewName\n";
+        print NAMEMAP "SourceTable\tSourceName\tSchema\tNewTable\tNewName\n";
     }
     
     # Are we case insensitive ? We have to install citext then
@@ -2494,6 +2494,8 @@ sub generate_schema
         # The tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
+            my $newtablename = format_identifier($table);
+            
             my @colsdef;
             foreach my $col (
                 sort {
@@ -2514,11 +2516,11 @@ sub generate_schema
                 
                 if ($namemap_file) 
                 {
-                    print NAMEMAP $schema . "\t" . $table . "\t" . $col . "\t" . $newcolname . "\n";
+                    print NAMEMAP $table . "\t" . $col . "\t" . $schema . "\t" . $newtablename . "\t" . $newcolname . "\n";
                 }
                     
             }
-            print BEFORE "CREATE TABLE " . format_identifier($schema) . '.' . format_identifier($table) . "( \n\t"
+            print BEFORE "CREATE TABLE " . format_identifier($schema) . '.' . $newtablename . "( \n\t"
                 . join(",\n\t", @colsdef)
                 . ");\n\n";
         }
