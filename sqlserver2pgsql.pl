@@ -1449,33 +1449,40 @@ sub parse_dump
 		       }
 		 }
 
-                # This is a generated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
-                # So just put it as a varchar, and issue a warning in STDOUT
-		# FIXME this should exist in PG12
+                # This is a computed column. PostgreSQL supports this as a generated column, starting with PG12
+                # Will assume the data type is varchar, but this will need to be changed if the source columns are int, numeric, float, etc.
+                # SQL Server allows this column to optionally be Persisted (vs. computed every time)
+                # PostgreSQL always persists the column (via keyword STORED)
                 elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)/)
                 {
-
-                    # We just get the column name
+                    # Get the column name
                     my $colnumber=next_col_pos($schemaname,$tablename);
                     my $colname = $1;
                     my $code    = $2;
                     my $coltype = 'varchar';
+                    
+                    # Replace square brackets in $code with double quotes
+                    my $codequoted = $code =~ s/[\[\]]/"/gr;
+                    my $generatedcode = " GENERATED ALWAYS AS ($codequoted) STORED";
+                    
                     $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{POS} = $colnumber;
                     $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{TYPE} = $coltype;
+                        ->{$colname}->{TYPE} = $coltype . $generatedcode;
                     $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{NOT_NULL} = 0;
 
-                    # Big fat warning
+                    # Show a warning
                     print STDERR
-                        "Warning: There is a generated column: $schemaname.$tablename.$colname. This isn't done the same way in PG at all\n";
+                        "\nWarning: There is a computed column: $schemaname.$tablename.$colname\n";
                     print STDERR
-                        "\tFor now it has been declared as a varchar in PG, so that the values can be copied\n";
+                        "\tPostgreSQL 12 supports this via GENERATED ALWAYS AS (...) STORED\n";
                     print STDERR
-                        "\tYou should change its type manually in the dump (sorry for that),\n";
-                    print STDERR "\tA trigger has been written in the unsure file. It probably won't work as is.\n";
-                    print STDERR "\tPlease review it.\n";
+                        "\tFor now it has been declared as a varchar and the calculation formula has been retained.\n";
+                    print STDERR
+                        "\tThe formula will likely need to be manually fixed to properly refer to other columns and possibly change the string concatenation symbol to || (sorry for that).\n";
+                    print STDERR "\tFor older versions of PostgreSQL, a trigger named trig_func_ins_or_upd_$tablename has been written in the unsure file.\n";
+                    print STDERR "\tIt probably won't work as is. Please review it.\n";
 
                     # Try to correct what can be corrected from the AS : replace [COL] with NEW.COL
                     # It is obviously not going to work for anything a bit complicated
