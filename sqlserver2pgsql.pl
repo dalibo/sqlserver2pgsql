@@ -1492,17 +1492,17 @@ begin
 end;
 EOF
                     $objects->{SCHEMAS}->{$schemaname}->{'TRIG_FUNCTIONS'}
-                        ->{'trig_func_ins_or_upd' || $tablename}->{DEF} =
+                        ->{"trig_func_ins_or_upd_$tablename"}->{DEF} =
                         $triggerfunc;
                     $objects->{SCHEMAS}->{$schemaname}->{'TRIG_FUNCTIONS'}
-                        ->{'trig_func_ins_or_upd' || $tablename}->{LANG} =
+                        ->{"trig_func_ins_or_upd_$tablename"}->{LANG} =
                         'plpgsql';
                     my %trigger;
                     $trigger{EVENTS} = 'before insert or update';
                     $trigger{WHEN}   = 'for each row';
                     $trigger{FUNCTION} =
-                        'trig_func_ins_or_upd' || $tablename;    # In the same schema
-                    $trigger{NAME} = 'trig_ins_or_upd' || $tablename;
+                        "trig_func_ins_or_upd_$tablename";    # In the same schema
+                    $trigger{NAME} = "trig_ins_or_upd_$tablename";
                     push @{$objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}
                             ->{TRIGGERS}}, (\%trigger);
 
