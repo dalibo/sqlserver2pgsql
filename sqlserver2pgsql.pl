@@ -2160,7 +2160,7 @@ EOF
 
         # Check constraint. As it can be arbitrary code, we just get this code, and hope it will work on PG (it will be stored in a special script file)
         elsif ($line =~
-            /ALTER TABLE \[(.*)\]\.\[(.*)\]\s+(?:WITH? (?:NO)?CHECK? )?ADD(?:\s+CONSTRAINT \[?(.*)\]?)?\s+CHECK(?: NOT FOR REPLICATION)?\s+\(\(?(.*)\)?\)/
+            /ALTER TABLE \[(.*)\]\.\[(.*)\]\s+(?:WITH? (?:NO)?CHECK? )?ADD(?:\s+CONSTRAINT (.*))?\s+CHECK(?: NOT FOR REPLICATION)?\s+\((\((.*)\)|(.*))\)/
             )
         {
             # Check constraint. We'll do what we can, syntax may be different.
@@ -2169,9 +2169,10 @@ EOF
             my $constxt = $4;
             my $schema  = relabel_schemas($1);
             $constraint->{TABLE} = $table;
-            if (defined $3)
-            {
-                $constraint->{NAME}  = $3;
+            if (defined $3) {
+	       my $constraint_name = $3;
+	       $constraint_name = $1 if ($constraint_name =~ /\[(.*)\]/);
+	       $constraint->{NAME}  = $constraint_name;
             }
             $constraint->{TYPE}  = 'CHECK';
             $constraint->{TEXT} = $constxt;
