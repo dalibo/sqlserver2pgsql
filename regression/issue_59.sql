@@ -21,6 +21,10 @@ CREATE TABLE [dbo].[ACCOUNT](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 ) ON [PRIMARY]
 
+ALTER TABLE [dbo].[ACCOUNT] WITH CHECK ADD CHECK (APPLICATION_ID IN('1.0', '2.1', '2.2', '4.12', '10.3', 'None'));
+GO
+ALTER TABLE [dbo].[ACCOUNT] ADD CONSTRAINT deletor_list CHECK (DELETED_BY IN('Jacques', 'Philippe', 'Pierre', 'None'));
+GO
 
 EXEC sys.sp_addextendedproperty @name=N'MS_SSMA_SOURCE', @value=N'ONEBANK.ACCOUNT.ID' , @level0type=N'SCHEMA',@level0name=N'dbo', @level1type=N'TABLE',@level1name=N'ACCOUNT', @level2type=N'COLUMN',@level2name=N'ID'
 GO

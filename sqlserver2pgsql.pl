@@ -421,7 +421,6 @@ sub postgres_convert_column
 }
 
 # This is used to convert camelCase to snake_case. The latter is more usual with PostgreSQL
-
 sub camel_to_snake
 {
     my ($string)=@_;
@@ -503,9 +502,24 @@ sub format_identifier_cols_index
     return $formatted . ' ' . $order;
 }
 
-# This one will try to convert what can obviously be converted from transact to (or embedded WHERE in indexes for instance) PG
-# We check if we have several blocks separated by logical operators
+# This one will try to convert what can obviously be converted from transact to PG
 # Things such as getdate() which can become CURRENT_TIMESTAMP
+sub convert_transact_function
+{
+   my ($code)=@_;
+   $code =~ s/ISNULL\s*\(/COALESCE(/gi;
+   $code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
+   $code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
+   $code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
+   $code =~ s/CONVERT\s*\(\s*NVARCHAR\s*(.*?)\s*\(\s*(.*?)\s*\s*\)\,\s*(.*?)\s*\)/CAST($3 AS varchar($2))/gi;
+   $code =~ s/CONVERT\s*\(\s*(.*?)\s*\(\s*(.*?)\s*\s*\)\,\s*(.*?)\s*\)/CAST($3 AS $1($2))/gi;
+   $code =~ s/CONVERT\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/CAST($2 AS $1)/gi;
+   return $code;
+}
+
+# This one will try to convert from transact to PG
+# We check if we have several blocks separated by logical operators
+# Code going through this function will go to UNSURE file
 sub convert_transactsql_code
 {
    my ($code)=@_;
@@ -526,10 +540,7 @@ sub convert_transactsql_code
       else {
 	 $code =~ s/\[(.*)\]/rename_identifier($1)/gie; # Bit brutal probably
       }
-      $code =~ s/ISNULL\s*\(/COALESCE(/gi;
-      $code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
-      $code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
-      $code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
+      $code = convert_transact_function($code);
    }
    #print STDERR "to: $code\n\n";
    return $code;
@@ -1450,10 +1461,10 @@ sub parse_dump
 		 }
 
                 # This is a calculated column. It doesn't exist in PG, it is not typed (I guess its type is the type of the returning function)
-                # So just put it as a varchar, and issue a warning is STDOUT
+                # So just put it as a varchar, and issue a warning in STDOUT
+		# FIXME this should exist in PG12
                 elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)/)
                 {
-
                     # We just get the column name
                     my $colnumber=next_col_pos($schemaname,$tablename);
                     my $colname = $1;
@@ -1546,7 +1557,6 @@ EOF
                     # Unique key definition. We read following lines until the end of the constraint
                     while (my $uk = read_and_clean($file))
                     {
-
                         # Exit when read a line beginning with ). The constraint is complete
                         if ($uk =~ /^\)/)
                         {
@@ -1713,8 +1723,9 @@ EOF
             }
             $schemaname = relabel_schemas($schemaname);
 
-            my $sql =  'CREATE VIEW ' . $schemaname . '.' . $viewname . ' ' . $supplement . "\n";
-            while (my $line_cont = read_and_clean($file))
+	    my $sql = $supplement;
+
+	    while (my $line_cont = read_and_clean($file))
             {
                 if ($line_cont =~ /^\s*'\s*$|^GO$/
                     ) # We may have a quote if the view is 'quoted', or a real sql query
@@ -1723,11 +1734,58 @@ EOF
                     # We get rid of dbo. schemas
                     $sql =~ s/(dbo)\./relabel_schemas($1) . '.'/eg
                         ;    # We put this in the replacement schema
+		    # print STDERR "code view: ".$sql."\n";
+		    # parse the query view
+		    if ( $sql =~ /^\s*\(([^\)]+)\)\s*AS\s+SELECT\s+(.*)\s+FROM\s+(.*)$/i) {
+		       my $view_columns = $1;
+		       my $query_columns = $2;
+		       my $query_end = $3;
+		       my @rebuilt_view_columns = ();
+		       my @rebuilt_query_columns = ();
+		       my @string_column = ();
+
+		       # format columns names
+		       foreach my $view_col (split (',',$view_columns)) {
+			  $view_col =~ s/^\s+|\s+$//g;
+			  push @rebuilt_view_columns, format_identifier($view_col);
+		       }
+		       $objects->{SCHEMAS}->{$schemaname}->{VIEWS}->{$viewname}->{COLS} =
+			  join(',', @rebuilt_view_columns);
+
+		       # format view query columns
+		       foreach my $view_query_col (split (',',$query_columns)) {
+			  if ($view_query_col
+				 =~ /^.*\+\s*N?'.*'\s*|\s*N?'.*'\s*\+.*|.*\+\s*N?'.*'\s*\+.*$/i) {
+			     # PG use '||' to concatenate strings, change '+' to '||'
+			     @string_column = ();
+			     my $lhs;
+			     while ($view_query_col =~ /^\s*(N?'.*?'|[^']+?)\s*\+\s*(.*)$/i) {
+				$lhs = $1;
+				$view_query_col = $2;
+				$lhs = $1 if ($lhs =~ /N('.*?')/);
+				push @string_column, $lhs;
+			     }
+			     $view_query_col = $1 if ($view_query_col =~ /N('.*?')/);
+			     push @string_column, $view_query_col;
+			     push @rebuilt_query_columns, join('||', @string_column);
+			  }
+			  else {
+			     push @rebuilt_query_columns, $view_query_col;
+			  }
+		       }
+		       $objects->{SCHEMAS}->{$schemaname}->{VIEWS}->{$viewname}->{QUERYCOLS} =
+			  convert_transact_function(join(',', @rebuilt_query_columns));
+
+		       $objects->{SCHEMAS}->{$schemaname}->{VIEWS}->{$viewname}->{QUERY} =
+			  convert_transact_function($query_end);
+		    }
+		    else {
+		       $objects->{SCHEMAS}->{$schemaname}->{VIEWS}->{$viewname}->{SQL} =
+			  $sql;
+		    }
 
                     # Views will be stored without the full schema in them. We will
                     # have to generate the schema in the output file
-                    $objects->{SCHEMAS}->{$schemaname}->{'VIEWS'}->{$viewname}->{SQL} =
-                        $sql;
                     my @view_array=($schemaname,$viewname);
                     push @view_list,(\@view_array); # adds another schema/view to the list
                     next MAIN;
@@ -2102,7 +2160,7 @@ EOF
 
         # Check constraint. As it can be arbitrary code, we just get this code, and hope it will work on PG (it will be stored in a special script file)
         elsif ($line =~
-            /ALTER TABLE \[(.*)\]\.\[(.*)\]\s+WITH (?:NO)?CHECK ADD(?:\s+CONSTRAINT \[(.*)\])? CHECK(?: NOT FOR REPLICATION)?\s+\(\((.*)\)\)/
+            /ALTER TABLE \[(.*)\]\.\[(.*)\]\s+(?:WITH? (?:NO)?CHECK? )?ADD(?:\s+CONSTRAINT (.*))?\s+CHECK(?: NOT FOR REPLICATION)?\s+\((\((.*)\)|(.*))\)/
             )
         {
             # Check constraint. We'll do what we can, syntax may be different.
@@ -2111,9 +2169,10 @@ EOF
             my $constxt = $4;
             my $schema  = relabel_schemas($1);
             $constraint->{TABLE} = $table;
-            if (defined $3)
-            {
-                $constraint->{NAME}  = $3;
+            if (defined $3) {
+	       my $constraint_name = $3;
+	       $constraint_name = $1 if ($constraint_name =~ /\[(.*)\]/);
+	       $constraint->{NAME}  = $constraint_name;
             }
             $constraint->{TYPE}  = 'CHECK';
             $constraint->{TEXT} = $constxt;
@@ -2848,11 +2907,22 @@ sub generate_schema
     {
         my ($schema,$view)=@$viewref;
         my $refschema=$objects->{SCHEMAS}->{$schema};
-        print UNSURE $refschema->{VIEWS}->{$view}->{SQL}, ";\n";
+	print UNSURE "CREATE VIEW "
+	   . format_identifier($schema) . '.' . format_identifier($view) . " ";
+	if (not defined $refschema->{VIEWS}->{$view}->{SQL}) {
+	   my $view_columns = $refschema->{VIEWS}->{$view}->{COLS};
+	   my $query_columns = $refschema->{VIEWS}->{$view}->{QUERYCOLS};
+	   my $query = $refschema->{VIEWS}->{$view}->{QUERY};
+	   print UNSURE "($view_columns) AS\n\tSELECT\n\t\t"
+	      . $query_columns . "\n\t" . "FROM $query;\n\n";
+	}
+	else {
+	   print UNSURE $refschema->{VIEWS}->{$view}->{SQL} . ";\n\n";
+	}
         if (defined $refschema->{VIEWS}->{$view}->{COMMENT})
         {
-            print UNSURE "COMMENT ON VIEW $schema.$view IS '"
-                . $refschema->{VIEWS}->{$view}->{COMMENT} . "';\n";
+	   print UNSURE "COMMENT ON VIEW $schema.$view IS '"
+	      . $refschema->{VIEWS}->{$view}->{COMMENT} . "';\n";
         }
     }
     # Trigger functions
