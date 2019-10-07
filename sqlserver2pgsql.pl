@@ -2160,7 +2160,7 @@ EOF
 
         # Check constraint. As it can be arbitrary code, we just get this code, and hope it will work on PG (it will be stored in a special script file)
         elsif ($line =~
-            /ALTER TABLE \[(.*)\]\.\[(.*)\]\s+(?:WITH? (?:NO)?CHECK? )?ADD(?:\s+CONSTRAINT \[(.*)\])?\s+CHECK(?: NOT FOR REPLICATION)?\s+\(\(?(.*)\)?\)/
+            /ALTER TABLE \[(.*)\]\.\[(.*)\]\s+(?:WITH? (?:NO)?CHECK? )?ADD(?:\s+CONSTRAINT \[?(.*)\]?)?\s+CHECK(?: NOT FOR REPLICATION)?\s+\(\(?(.*)\)?\)/
             )
         {
             # Check constraint. We'll do what we can, syntax may be different.
