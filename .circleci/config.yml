@@ -5,13 +5,16 @@ jobs:
     docker:
       - image: perl:5.24-threaded
       - image: postgres:10-alpine
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_POSTGRES: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
     environment:
       # Inject APT packaged dependencies.
       PERL5LIB: /usr/lib/x86_64-linux-gnu/perl5/5.24:/usr/share/perl5
       PGHOST: localhost
       PGDATABASE: postgres
       PGUSER: postgres
-      POSTGRES_HOST_AUTH_METHOD: trust
     working_directory: /tmp/sqlserver2pgsql
     steps:
       - run:
