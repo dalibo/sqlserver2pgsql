@@ -11,6 +11,7 @@ jobs:
       PGHOST: localhost
       PGDATABASE: postgres
       PGUSER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
     working_directory: /tmp/sqlserver2pgsql
     steps:
       - run:
