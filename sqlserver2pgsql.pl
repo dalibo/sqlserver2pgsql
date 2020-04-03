@@ -1571,7 +1571,7 @@ EOF
                     }
 
                 }
-                elsif ($line =~ /^\s*\) ON \[PRIMARY\]/)
+                elsif ($line =~ /^\s*\) ON \[.*\]/)
                 {
                     # End of the table
                     next MAIN;
