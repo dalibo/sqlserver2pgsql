@@ -4,7 +4,7 @@ jobs:
   test:
     docker:
       - image: perl:5.24-threaded
-      - image: postgres:10-alpine
+      - image: postgres:12-alpine
         environment:
           POSTGRES_USER: postgres
           POSTGRES_POSTGRES: postgres
