@@ -2206,7 +2206,7 @@ EOF
                 or croak
                 "Cannot find a name for this extended property: $sqlproperty";
             my $propertyname = $1;
-            if ($propertyname =~ /^(MS_DiagramPaneCount|MS_DiagramPane1|MS_DiagramPane2|Display Name|Description|Example Values|Source System|Table Description|Table Type|ETL Rules|Display Folder|SCD  Type|Source Datatype)$/)
+            if ($propertyname =~ /^(AggregateType|AllowZeroLength|AppendOnly|Attributes|CollatingOrder|ColumnHidden|ColumnOrder|ColumnWidth|DataUpdatable|DateCreated|DefaultValue|Description|Display Folder|Display Name|DisplayViewsOnSharePointSite|ETL Rules|Example Values|FilterOnLoad|GUID|HideNewField|LastUpdated|MS_DecimalPlaces|MS_DefaultView|MS_DiagramPane1|MS_DiagramPane2|MS_DiagramPaneCount|MS_DisplayControl|MS_Format|MS_Hyperlink|MS_IMEMode|MS_IMESentMode|MS_InputMask|MS_OrderByOn|MS_Orientation|Name|OrderByOnLoad|OrdinalPosition|RecordCount|Required|SCD  Type|ShowDatePicker|Size|Source Datatype|Source System|SourceField|SourceTable|Table Description|Table Type|TextAlign|TextFormat|TotalsRow|Type|UnicodeCompression|Updatable)$/)
             {
                 # We don't dump these. They are graphical descriptions of the GUI
                 next;
