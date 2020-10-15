@@ -1917,41 +1917,47 @@ sub parse_dump
                     next MAIN;
                 }
                 next
-                    if ($idx =~ /^\(|^\)/)
-                    ;    # Begin/end of the columns declaration
-                if ($idx =~ /\t\[(.*)\] (ASC|DESC)(,)?/)
-                {
-                    if (defined $2)
-                    {
-                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                   if ($idx =~ /^\(|^\)/)
+                   ;    # Begin/end of the columns declaration
+                if ($idx =~ /\t\[(.*)\] (ASC|DESC)(,)?/) {
+                   if (defined $2) {
+                      push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                                 ->{INDEXES}->{$idxname}->{COLS}}, ("$1 $2");
-                    }
-                    else
-                    {
-                        push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                   }
+                   else {
+                      push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                                 ->{INDEXES}->{$idxname}->{COLS}}, ("$1");
-                    }
+                   }
                 }
-                if ($idx =~ /^INCLUDE \(/)
-                {
-                    print STDERR
-                        "Warning: This index ($schemaname.$tablename.$idxname) has some include columns. This isn't supported in PostgreSQL.\n";
-                    print STDERR
-                        "\tThe columns in the INCLUDE clause have been ignored.\n";
-                    next
-                        ; # Nothing equivalent in PG. Maybe if the index isn't unique, these columns should be added?
+                if ($idx =~ /^INCLUDE\s*\(\s*\[(.*?)\](.*)/) {
+                   # INCLUDE coluns in indexes are available on PG11 onward
+                   # if multiple included columns, there are declared one per line
+                   push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                             ->{INDEXES}->{$idxname}->{INCLUDE}}, ($1);
+                   print STDERR "found included column: ".$1."\n";
+                   if (index($2, ')') == -1) {
+                      while (my $incl_line = read_and_clean($file)) {
+                         if ($incl_line =~ /^\s*\[(.*?)\](.*)/) {
+                            push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                                      ->{INDEXES}->{$idxname}->{INCLUDE}}, ($1);
+                            print STDERR "found included column: ".$1."\n";
+                            last if (index($2, ')') != -1);
+                         }
+                      }
+                   }
                 }
-                if ($idx =~ /^WHERE\s*\((.*)\)$/)
-                {
-                    # This is a where clause. PostgreSQL has them too. But we cannot be sure this will be exactly the same. So if an index as a WHERE clause, it has to go to unsure
-                    my $filter=$1;
-                    $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
-                            ->{INDEXES}->{$idxname}->{WHERE}="(".$filter.")";
+                if ($idx =~ /^WHERE\s*\((.*)\)$/) {
+                   # This is a where clause. PostgreSQL has them too. But we
+                   # cannot be sure this will be exactly the same. So if an
+                   # index as a WHERE clause, it has to go to unsure
+                   my $filter=$1;
+                   $objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
+                      ->{INDEXES}->{$idxname}->{WHERE}="(".$filter.")";
                 }
-            }
-	 }
+             }
+         }
 
-	# we do not take migrate spatial indexes
+				# we do not take migrate spatial indexes
         elsif ($line =~ /^CREATE SPATIAL INDEX/)
         {
             my $def=$line;
@@ -2683,51 +2689,49 @@ sub generate_schema
                 {
                    $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
                      . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ")";
-                   if (not defined $idxref->{WHERE} and not defined $idxref->{DISABLE})
-                   {
-                       $idxdef .= ";\n";
-                       print AFTER $idxdef;
-                       # the possible comment would go to after file
-                       $index_created = 1;
+
+                   if (not defined $idxref->{INCLUDE} and not defined $idxref->{WHERE} and not defined $idxref->{DISABLE}) {
+                      $idxdef .= ";\n";
+                      print AFTER $idxdef;
+                      # the possible comment would go to after file
+                      $index_created = 1;
                    }
-                   else
-		   {
-		      # this is either a disabled index or an index with a where declaration
-		      if (defined $idxref->{WHERE})
-		      {
-			 print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
-			 if ($idxref->{DISABLE})
-			 {
-			    # if disabled, will be on the same line
-			    $idxdef .= " ";
-			 }
-			 else
-			 {
-			    # otherwise, write condition on a new line
-			    $idxdef .= "\n";
-			 }
-			 $idxdef .= "WHERE (" . convert_transactsql_code($idxref->{WHERE}) . ")";
-		      }
-		      $idxdef .= ";\n";
-		      print UNSURE $idxdef;
-		      # the possible comment would go to unsure file
-		      $index_created = 2;
-		   }
+                   else {
 
-		   # Produce the comments for indexes
-		   if (defined $idxref->{COMMENT})
-		   {
-		      my $idxcomment = "COMMENT ON INDEX ". format_identifier($schema) . '.' . format_identifier($index) . " IS '" . $idxref->{COMMENT} . "';\n";
-		      if ($index_created == 1)
-		      {
-			 print AFTER $idxcomment;
-		      }
-		      elsif ($index_created == 2)
-		      {
-			 print UNSURE $idxcomment;
-		      }
-		   }
+                      # this is either a disabled index or an index with a where declaration
+                      if (defined $idxref->{INCLUDE}) {
+                         $idxdef .= " INCLUDE (" .
+                            join(",", map{format_identifier_cols_index($_)} @{$idxref->{INCLUDE}})
+                            . ")";
+                      }
 
+                      # this is either a disabled index or an index with a where declaration
+                      if (defined $idxref->{WHERE}) {
+                         print STDERR "Warning: index $schema.$index contains a where clause. It goes to unsure file\n";
+                         if ($idxref->{DISABLE}) {
+                            # if disabled, will be on the same line
+                            $idxdef .= " ";
+                         } else {
+                            # otherwise, write condition on a new line
+                            $idxdef .= "\n";
+                         }
+                         $idxdef .= "WHERE (" . convert_transactsql_code($idxref->{WHERE}) . ")";
+                      }
+                      $idxdef .= ";\n";
+                      print UNSURE $idxdef;
+                      # the possible comment would go to unsure file
+                      $index_created = 2;
+                   }
+
+                   # Produce the comments for indexes
+                   if (defined $idxref->{COMMENT}) {
+                      my $idxcomment = "COMMENT ON INDEX ". format_identifier($schema) . '.' . format_identifier($index) . " IS '" . $idxref->{COMMENT} . "';\n";
+                      if ($index_created == 1) {
+                         print AFTER $idxcomment;
+                      } elsif ($index_created == 2) {
+                         print UNSURE $idxcomment;
+                      }
+                   }
                 }
              }
          }
