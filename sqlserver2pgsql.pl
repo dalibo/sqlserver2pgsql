@@ -1462,63 +1462,46 @@ sub parse_dump
 
                 # This is a computed column. PostgreSQL supports this as a generated column, starting with PG12
                 # Will assume the data type is varchar, but this will need to be changed if the source columns are int, numeric, float, etc.
-                # SQL Server allows this column to optionally be Persisted (vs. computed every time)
-                # PostgreSQL always persists the column (via keyword STORED)
-                elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)/)
+                elsif ($line =~ /^\s*\[(.*)\]\s+AS\s+\((.*)\)(.*)/)
                 {
                     # Get the column name
                     my $colnumber=next_col_pos($schemaname,$tablename);
                     my $colname = $1;
                     my $code    = $2;
                     my $coltype = 'varchar';
+                    my $other_param = $3;
 
                     # Replace square brackets in $code with double quotes
                     my $codequoted = $code =~ s/[\[\]]/"/gr;
-                    my $generatedcode = " GENERATED ALWAYS AS ($codequoted) STORED";
+                    my $generatedcode = " /* GENERATED ALWAYS AS ($codequoted)";
+                    if ($other_param =~ /PERSISTED/) {
+                       $generatedcode .= " STORED";
+                    }
+                    $generatedcode .= " */";
 
                     $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{POS} = $colnumber;
                     $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
                         ->{$colname}->{TYPE} = $coltype . $generatedcode;
-                    $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
-                        ->{$colname}->{NOT_NULL} = 0;
+
+                    if ($other_param =~ /NOT NULL/) {
+                       $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                          ->{$colname}->{NOT_NULL} = 1;
+                    }
+                    else {
+                       $objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}->{COLS}
+                          ->{$colname}->{NOT_NULL} = 0;
+                    }
 
                     # Show a warning
                     print STDERR
                         "\nWarning: There is a computed column: $schemaname.$tablename.$colname\n";
                     print STDERR
-                        "\tPostgreSQL 12 supports this via GENERATED ALWAYS AS (...) STORED\n";
+                        "\tPostgreSQL 12 supports this via GENERATED ALWAYS AS (...)\n";
                     print STDERR
-                        "\tFor now it has been declared as a varchar and the calculation formula has been retained.\n";
+                        "\tFor now it has been declared as a varchar and the calculation formula has been commented.\n";
                     print STDERR
-                        "\tThe formula will likely need to be manually fixed to properly refer to other columns and possibly change the string concatenation symbol to || (sorry for that).\n";
-                    print STDERR "\tFor older versions of PostgreSQL, a trigger named trig_func_ins_or_upd_$tablename has been written in the unsure file.\n";
-                    print STDERR "\tIt probably won't work as is. Please review it.\n";
-
-                    # Try to correct what can be corrected from the AS : replace [COL] with NEW.COL
-                    # It is obviously not going to work for anything a bit complicated
-                    $code =~ s/\[(.*?)\]/NEW.$1/g;
-                    my $triggerfunc = <<EOF;
-begin
-  NEW.$colname=$code;
-  RETURN NEW;
-end;
-EOF
-                    $objects->{SCHEMAS}->{$schemaname}->{'TRIG_FUNCTIONS'}
-                        ->{"trig_func_ins_or_upd_$tablename"}->{DEF} =
-                        $triggerfunc;
-                    $objects->{SCHEMAS}->{$schemaname}->{'TRIG_FUNCTIONS'}
-                        ->{"trig_func_ins_or_upd_$tablename"}->{LANG} =
-                        'plpgsql';
-                    my %trigger;
-                    $trigger{EVENTS} = 'before insert or update';
-                    $trigger{WHEN}   = 'for each row';
-                    $trigger{FUNCTION} =
-                        "trig_func_ins_or_upd_$tablename";    # In the same schema
-                    $trigger{NAME} = "trig_ins_or_upd_$tablename";
-                    push @{$objects->{SCHEMAS}->{$schemaname}->{'TABLES'}->{$tablename}
-                            ->{TRIGGERS}}, (\%trigger);
-
+                       "\tThe formula will likely need to be manually fixed to properly refer to other columns.\n";
                 }
                 elsif ($line =~
                        /^\s*(?:CONSTRAINT \[(.*)\] )?PRIMARY KEY (?:NON)?CLUSTERED(?: HASH)?/)
