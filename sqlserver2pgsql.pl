@@ -1934,13 +1934,11 @@ sub parse_dump
                    # if multiple included columns, there are declared one per line
                    push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                              ->{INDEXES}->{$idxname}->{INCLUDE}}, ($1);
-                   print STDERR "found included column: ".$1."\n";
                    if (index($2, ')') == -1) {
                       while (my $incl_line = read_and_clean($file)) {
                          if ($incl_line =~ /^\s*\[(.*?)\](.*)/) {
                             push @{$objects->{SCHEMAS}->{$schemaname}->{TABLES}->{$tablename}
                                       ->{INDEXES}->{$idxname}->{INCLUDE}}, ($1);
-                            print STDERR "found included column: ".$1."\n";
                             last if (index($2, ')') != -1);
                          }
                       }
@@ -2646,7 +2644,7 @@ sub generate_schema
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
             foreach my $constraint (
-	       @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
+              @{$refschema->{TABLES}->{$table}->{CONSTRAINTS}})
             {
                 next unless ($constraint->{TYPE} eq 'UNIQUE');
                 my $consdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
@@ -2690,20 +2688,19 @@ sub generate_schema
                    $idxdef .= " INDEX " . format_identifier($index) . " ON " . format_identifier($schema) . '.' . format_identifier($table) . " ("
                      . join(",", map{format_identifier_cols_index($_)} @{$idxref->{COLS}}) . ")";
 
-                   if (not defined $idxref->{INCLUDE} and not defined $idxref->{WHERE} and not defined $idxref->{DISABLE}) {
+                   if (defined $idxref->{INCLUDE}) {
+                      $idxdef .= " INCLUDE (" .
+                         join(",", map{format_identifier_cols_index($_)} @{$idxref->{INCLUDE}})
+                         . ")";
+                   }
+
+                   if (not defined $idxref->{WHERE} and not defined $idxref->{DISABLE}) {
                       $idxdef .= ";\n";
                       print AFTER $idxdef;
                       # the possible comment would go to after file
                       $index_created = 1;
                    }
                    else {
-
-                      # this is either a disabled index or an index with a where declaration
-                      if (defined $idxref->{INCLUDE}) {
-                         $idxdef .= " INCLUDE (" .
-                            join(",", map{format_identifier_cols_index($_)} @{$idxref->{INCLUDE}})
-                            . ")";
-                      }
 
                       # this is either a disabled index or an index with a where declaration
                       if (defined $idxref->{WHERE}) {
