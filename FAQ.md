@@ -16,6 +16,31 @@ variable to a higher value (4096) for 4GB for instance.
 There is another big advantage of using Kettle: you can tailor the scripts produced by sqlserver2pgsql to your needs, such as adding some conversions, schema changes. As Kettle is an ETL, it is a good tool for doing such conversions on the fly.
 
 
+In which order should I run the operations?
+----------------------------------
+
+sqlserver2pgsql outputs several files: before, after and unsure SQL files, plus
+the kettle jobs files.
+
+If you load all the SQL files before the data migration, you can experience
+problems. For example, you can have errors when the kettle job truncates the
+table at the start of the process. If a foreign key constraint is enforced,
+PostgreSQL cannot truncate a table referenced in a foreign key constraint and
+the job would error out.
+
+You should first check the unsure file, verify that the SQL is fine or correct
+it if needed. Some SQL orders from the unsure files are to be run before the
+data migration, for example, default column values, procedures or functions,
+triggers. So move them to the before file.
+
+You can then load the before file (`before.sql`). Then use the kettle jobs to
+migrate the data (`migration.kjb`). When this is done, load the rest of the
+unsure and the after file (`unsure.sql` and `after.sql`).
+
+In case you are still using the original database, a specific kettle job is
+created so that you can feed the change periodically to your PostgreSQL
+database (`incremental.kjb`).
+
 
 What is this IGNORE NULLS I have to change in kettle.properties ?
 ----------------------------------
@@ -40,3 +65,4 @@ doesn't exist either in PG. So more constraints will fail.
 Can this tool migrate functions and stored procedures?
 ----------------------------------
 No, Transact-SQL is very different from PostgreSQL's many PL languages. These would need a manual migration.
+
