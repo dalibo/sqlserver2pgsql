@@ -1824,14 +1824,18 @@ sub parse_dump
             my $newtype;
             TYPE: while (my $typeline= read_and_clean($file))
             {
-                if ($typeline =~ /^\t\[(.*)\] \[(.*)\](?:\s*?\((\d+(?:,\d+)?)\))?(?:\s+?(?:NOT\s+?)?NULL),?$/)
+                if ($typeline =~ /^\t\[(.*)\] \[(.+?)\](?:\s*?\((\d+|max(?:,\d+)?)\))?(?:\s+?(?:NOT\s+?)?NULL),?$/)
                 {
                     # This is another column for this type
                     $colname=$1;
                     $type=$2;
                     $typequal=$3;
+                    if ($typequal eq 'max') {
+                       # max in SqlServer is the same as no typequal in pg
+                       $typequal = undef;
+                    }
                     $newtype =
-                       convert_type($type,   $typequal, undef, undef, undef, undef);
+                       convert_type($type, $typequal, undef, undef, undef, undef);
                     push @cols_newbasetype,(format_identifier($colname) . ' ' . $newtype);
                 }
                 elsif ( $typeline =~ /PRIMARY KEY/)
