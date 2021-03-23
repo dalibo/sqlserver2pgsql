@@ -1830,7 +1830,7 @@ sub parse_dump
                     $colname=$1;
                     $type=$2;
                     $typequal=$3;
-                    if ($typequal eq 'max') {
+                    if (defined $typequal and $typequal eq 'max') {
                        # max in SqlServer is the same as no typequal in pg
                        $typequal = undef;
                     }
