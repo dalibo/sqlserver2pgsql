@@ -3,8 +3,8 @@ version: 2
 jobs:
   test:
     docker:
-      - image: perl:5.24-threaded
-      - image: postgres:12-alpine
+      - image: perl:5-threaded
+      - image: postgres:13-alpine
         environment:
           POSTGRES_USER: postgres
           POSTGRES_POSTGRES: postgres
