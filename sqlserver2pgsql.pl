@@ -52,11 +52,8 @@ our $sort_size;
 our $use_pk_if_possible;
 our $pforce_ssl;
 our $stringtype_unspecified;
-<<<<<<< HEAD
 our $skip_citext_length_check;
-=======
-our $create_generated_always;
->>>>>>> Add option to convert Identity columns to "GENERATED ALWAYS AS IDENTITY" columns
+our $use_identity_column;
 
 # Will be set if we detect GIS objects
 our $requires_postgis=0;
@@ -113,11 +110,8 @@ sub parse_conf_file
       'ignore errors'            => 'ignore_errors',
       'postgresql force ssl'     => 'pforce_ssl',
       'stringtype unspecified'   => 'stringtype_unspecified',
-<<<<<<< HEAD
-      'skip citext length check'   => 'skip_citext_length_check',
-=======
-      'create generated always'   => 'create_generated_always',
->>>>>>> Add option to convert Identity columns to "GENERATED ALWAYS AS IDENTITY" columns
+      'skip citext length check' => 'skip_citext_length_check',
+      'use identity column'      => 'use_identity_column',
    );
 
    # Open the conf file or die
@@ -168,11 +162,8 @@ sub set_default_conf_values
     $sp=1433 unless (defined ($sp));
     $pforce_ssl=0 unless (defined ($pforce_ssl));
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
-<<<<<<< HEAD
     $skip_citext_length_check=0 unless (defined ($skip_citext_length_check));
-=======
-    $create_generated_always=0 unless (defined ($create_generated_always));
->>>>>>> Add option to convert Identity columns to "GENERATED ALWAYS AS IDENTITY" columns
+    $use_identity_column=0 unless (defined ($use_identity_column));
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -804,6 +795,11 @@ Options:
             '1' sort all tables. LIST_OF_TABLES gives a comma separated list of
             tables to sort in the form 'schema1.table1,schema2.table2'. Cases 
             are compared insensitively.
+    -skip_citext_length_check (Default 0)
+            if set, do not add a CHECK (char_length()) check for citext fields
+    -use_identity_column (Default 1)
+            if set, use identity columns statements (GENERATED ALWAYS AS
+            IDENTITY) instead of creating a dedicated sequence (CREATE SEQUENCE)
 
   Kettle options: 
     if you are generating for kettle, you must provide connection information.
@@ -2597,7 +2593,7 @@ sub generate_schema
         {
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
             
-            if ($create_generated_always and defined $seqref->{OWNERTABLE})
+            if ($use_identity_column and defined $seqref->{OWNERTABLE})
             {
                 # Add a statement of the form
                 # ALTER TABLE "schema"."table_name" ALTER COLUMN "column_name" ADD GENERATED ALWAYS AS IDENTITY (start 1000);
@@ -2906,7 +2902,7 @@ sub generate_schema
                 }
                 else
                 {
-                    if ($create_generated_always and ($definition =~ /nextval.+_seq/i)) 
+                    if ($use_identity_column and ($definition =~ /nextval.+_seq/i))
                     {
                         # Skip this set default item
                     }
@@ -2928,7 +2924,7 @@ sub generate_schema
 	   my $seqref = $refschema->{SEQUENCES}->{$sequence};
 	   # This may not be an identity. Skip it then
 	   next unless defined ($seqref->{OWNERCOL});
-    	   next if defined ($create_generated_always);
+	   next if defined ($use_identity_column);
 	   print AFTER "select setval('" . format_identifier($schema) . '.'
 	      . format_identifier($sequence) . "',(select " . ($seqref->{STEP} > 0 ? "max" : "min") . "("
 	      . format_identifier($seqref->{OWNERCOL}) .") from "
@@ -3170,7 +3166,9 @@ my $options = GetOptions(
 	 "use_pk_if_possible=s"    => \$use_pk_if_possible,
 	 "ignore_errors"           => \$ignore_errors,
 	 "pforce_ssl"	           => \$pforce_ssl,
-	 "stringtype_unspecified"  => \$stringtype_unspecified
+	 "stringtype_unspecified"  => \$stringtype_unspecified,
+	 "skip_citext_length_check" => \$skip_citext_length_check,
+	 "use_identity_column"     => \$use_identity_column
 );
 
 # We don't understand command line or have been asked for usage
