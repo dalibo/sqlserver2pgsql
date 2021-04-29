@@ -1348,7 +1348,7 @@ sub add_column_to_table
 
         # We have an identity field. We remember the default value and
         # initialize the sequence correctly in the after script
-        $isidentity =~ /IDENTITY\s*\((\d+),\s*(\d+)\)/
+        $isidentity =~ /IDENTITY\s*\((-?\d+),\s*(-?\d+)\)/
             or die "Cannot understand <$isidentity>";
         my $startseq = $1;
         my $stepseq  = $2;
@@ -1364,8 +1364,6 @@ sub add_column_to_table
             ->{$colname}->{DEFAULT}->{UNSURE} = 0;
 
         $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{START}
-            = $startseq;
-        $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{MIN}
             = $startseq;
         $objects->{SCHEMAS}->{$schemaname}->{SEQUENCES}->{$seqname}->{STEP}
             = $stepseq;
@@ -1449,7 +1447,7 @@ sub parse_dump
                 # column name, typical microsoft stuff :( )
                 # To make matters even worse, they seem to systematically add a space after it :)
                 if ($line =~
-                    /^\s+\[(.*)\]\s*(?:\[(.*)\]\.)?\[(.*)\]\s*(\(.+?\))?(?: COLLATE (\S+))?( IDENTITY\s*\(\d+,\s*\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(?:SPARSE +)?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
+                    /^\s+\[(.*)\]\s*(?:\[(.*)\]\.)?\[(.*)\]\s*(\(.+?\))?(?: COLLATE (\S+))?( IDENTITY\s*\(-?\d+,\s*-?\d+\))?(?: ROWGUIDCOL ?)? (?:NOT FOR REPLICATION )?(?:SPARSE +)?(NOT NULL|NULL)(?:\s+CONSTRAINT \[.*\])?(?:\s+DEFAULT \((.*)\))?(?:,|$)?/
                     )
                 {
                     # Deported into a function because we can also meet alter table add columns on their own
@@ -1983,7 +1981,7 @@ sub parse_dump
         # Added table columns… this seems to appear in SQL Server when some columns have ANSI padding, and some not.
         # PG follows ANSI, that is not an option. The end of the regexp is pasted from the create table
         elsif ($line =~
-            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD \[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(\d+,\s*\d+\))? (NOT NULL|NULL)(?: CONSTRAINT \[.*\] )?(?: DEFAULT \(.*\))?$/
+            /^ALTER TABLE \[(.*)\]\.\[(.*)\] ADD \[(.*)\] (?:\[(.*)\]\.)?\[(.*)\](\(.+?\))?( IDENTITY\(-?\d+,\s*-?\d+\))? (NOT NULL|NULL)(?: CONSTRAINT \[.*\] )?(?: DEFAULT \(.*\))?$/
             )
         {
             my $schemaname=relabel_schemas($1);
@@ -2883,7 +2881,7 @@ sub generate_schema
 	   # This may not be an identity. Skip it then
 	   next unless defined ($seqref->{OWNERCOL});
 	   print AFTER "select setval('" . format_identifier($schema) . '.'
-	      . format_identifier($sequence) . "',(select max("
+	      . format_identifier($sequence) . "',(select " . ($seqref->{STEP} > 0 ? "max" : "min") . "("
 	      . format_identifier($seqref->{OWNERCOL}) .") from "
 	      . format_identifier($seqref->{OWNERSCHEMA}) . '.'
 	      . format_identifier($seqref->{OWNERTABLE}) . ")::bigint);\n";
