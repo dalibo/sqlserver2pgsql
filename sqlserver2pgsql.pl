@@ -3157,18 +3157,18 @@ my $options = GetOptions(
 	 "i"      => \$case_insensitive,
 	 "nr"     => \$norelabel_dbo,
 	 "num"    => \$convert_numeric_to_int,
-	 "drop_rowversion"         => \$drop_rowversion,
-	 "relabel_schemas=s"       => \$relabel_schemas,
-	 "keep_identifier_case"    => \$keep_identifier_case,
-	 "camel_to_snake"          => \$camel_to_snake,
-	 "validate_constraints=s"  => \$validate_constraints,
-	 "sort_size=i"             => \$sort_size,
-	 "use_pk_if_possible=s"    => \$use_pk_if_possible,
-	 "ignore_errors"           => \$ignore_errors,
-	 "pforce_ssl"	           => \$pforce_ssl,
-	 "stringtype_unspecified"  => \$stringtype_unspecified,
+	 "drop_rowversion"          => \$drop_rowversion,
+	 "relabel_schemas=s"        => \$relabel_schemas,
+	 "keep_identifier_case"     => \$keep_identifier_case,
+	 "camel_to_snake"           => \$camel_to_snake,
+	 "validate_constraints=s"   => \$validate_constraints,
+	 "sort_size=i"              => \$sort_size,
+	 "use_pk_if_possible=s"     => \$use_pk_if_possible,
+	 "ignore_errors"            => \$ignore_errors,
+	 "pforce_ssl"	            => \$pforce_ssl,
+	 "stringtype_unspecified"   => \$stringtype_unspecified,
 	 "skip_citext_length_check" => \$skip_citext_length_check,
-	 "use_identity_column"     => \$use_identity_column
+	 "use_identity_column"      => \$use_identity_column
 );
 
 # We don't understand command line or have been asked for usage
