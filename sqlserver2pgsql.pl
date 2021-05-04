@@ -53,6 +53,7 @@ our $use_pk_if_possible;
 our $pforce_ssl;
 our $stringtype_unspecified;
 our $skip_citext_length_check;
+our $use_identity_column;
 
 # Will be set if we detect GIS objects
 our $requires_postgis=0;
@@ -109,7 +110,8 @@ sub parse_conf_file
       'ignore errors'            => 'ignore_errors',
       'postgresql force ssl'     => 'pforce_ssl',
       'stringtype unspecified'   => 'stringtype_unspecified',
-      'skip citext length check'   => 'skip_citext_length_check',
+      'skip citext length check' => 'skip_citext_length_check',
+      'use identity column'      => 'use_identity_column',
    );
 
    # Open the conf file or die
@@ -161,6 +163,7 @@ sub set_default_conf_values
     $pforce_ssl=0 unless (defined ($pforce_ssl));
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
     $skip_citext_length_check=0 unless (defined ($skip_citext_length_check));
+    $use_identity_column=0 unless (defined ($use_identity_column));
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -792,6 +795,11 @@ Options:
             '1' sort all tables. LIST_OF_TABLES gives a comma separated list of
             tables to sort in the form 'schema1.table1,schema2.table2'. Cases 
             are compared insensitively.
+    -skip_citext_length_check (Default 0)
+            if set, do not add a CHECK (char_length()) check for citext fields
+    -use_identity_column (Default 1)
+            if set, use identity columns statements (GENERATED ALWAYS AS
+            IDENTITY) instead of creating a dedicated sequence (CREATE SEQUENCE)
 
   Kettle options: 
     if you are generating for kettle, you must provide connection information.
@@ -2584,35 +2592,63 @@ sub generate_schema
         foreach my $sequence (sort keys %{$refschema->{SEQUENCES}})
         {
             my $seqref = $refschema->{SEQUENCES}->{$sequence};
-            print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence);
-	    if (defined $seqref->{STEP})
-	    {
-	       print AFTER " INCREMENT BY ",$seqref->{STEP};
-	    }
-	    if (defined $seqref->{MIN})
-	    {
-	       print AFTER " MINVALUE ",$seqref->{MIN};
-	    }
-	    if (defined $seqref->{MAX})
-	    {
-	       print AFTER " MAXVALUE ",$seqref->{MAX};
-	    }
-	    if (defined $seqref->{START})
-	    {
-	       print AFTER " START WITH ",$seqref->{START};
-	    }
-	    if (defined $seqref->{CACHE})
-	    {
-	       print AFTER " CACHE ",$seqref->{CACHE};
-	    }
-	    if (defined $seqref->{OWNERTABLE})
-	    {
-	       print AFTER " OWNED BY ",format_identifier($seqref->{OWNERSCHEMA}),
-		  '.',format_identifier($seqref->{OWNERTABLE}),
-		  '.',format_identifier($seqref->{OWNERCOL});
-	    }
-	    print AFTER ";\n";
-	 }
+            
+            if ($use_identity_column and defined $seqref->{OWNERTABLE})
+            {
+                # Add a statement of the form
+                # ALTER TABLE "schema"."table_name" ALTER COLUMN "column_name" ADD GENERATED ALWAYS AS IDENTITY (start 1000);
+
+                print AFTER "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($seqref->{OWNERTABLE}) . " ";
+                print AFTER "ALTER COLUMN " . format_identifier($seqref->{OWNERCOL}) . " ADD GENERATED ALWAYS AS IDENTITY";
+                
+                if (defined $seqref->{START} or defined $seqref->{STEP})
+                {
+                    print AFTER " (";
+                    if (defined $seqref->{START})
+            	    {
+            	       print AFTER " START WITH ",$seqref->{START};
+            	    }
+            	    
+            	    if (defined $seqref->{STEP})
+            	    {
+            	       print AFTER " INCREMENT BY ",$seqref->{STEP};
+            	    }          	    
+                    print AFTER ")";
+        	    }        	    
+            }
+            else 
+            {
+                print AFTER "CREATE SEQUENCE " . format_identifier($schema) . '.' . format_identifier($sequence);
+        	    if (defined $seqref->{STEP})
+        	    {
+        	       print AFTER " INCREMENT BY ",$seqref->{STEP};
+        	    }
+        	    if (defined $seqref->{MIN})
+        	    {
+        	       print AFTER " MINVALUE ",$seqref->{MIN};
+        	    }
+        	    if (defined $seqref->{MAX})
+        	    {
+        	       print AFTER " MAXVALUE ",$seqref->{MAX};
+        	    }
+        	    if (defined $seqref->{START})
+        	    {
+        	       print AFTER " START WITH ",$seqref->{START};
+        	    }
+        	    if (defined $seqref->{CACHE})
+        	    {
+        	       print AFTER " CACHE ",$seqref->{CACHE};
+        	    }
+        	    if (defined $seqref->{OWNERTABLE})
+        	    {
+        	       print AFTER " OWNED BY ",format_identifier($seqref->{OWNERSCHEMA}),
+            		  '.',format_identifier($seqref->{OWNERTABLE}),
+            		  '.',format_identifier($seqref->{OWNERCOL});
+        	    }
+        	}
+        	
+    	    print AFTER ";\n";
+    	 }
 
         # Now PK. We have to go through all tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
@@ -2861,12 +2897,20 @@ sub generate_schema
 		   . " ALTER COLUMN " . format_identifier($col)
 		   . " SET DEFAULT " . $default_value . ";\n";
                 if ($colref->{DEFAULT}->{UNSURE})
-		{
+		        {
                     print UNSURE $definition;
                 }
                 else
                 {
-                    print AFTER $definition;
+                    if ($use_identity_column and ($definition =~ /nextval.+_seq/i))
+                    {
+                        # Skip this set default item
+                    }
+                    else 
+                    {
+                        print AFTER $definition;
+                    }
+                        
                 }
             }
         }
@@ -2880,6 +2924,7 @@ sub generate_schema
 	   my $seqref = $refschema->{SEQUENCES}->{$sequence};
 	   # This may not be an identity. Skip it then
 	   next unless defined ($seqref->{OWNERCOL});
+	   next if defined ($use_identity_column);
 	   print AFTER "select setval('" . format_identifier($schema) . '.'
 	      . format_identifier($sequence) . "',(select " . ($seqref->{STEP} > 0 ? "max" : "min") . "("
 	      . format_identifier($seqref->{OWNERCOL}) .") from "
@@ -3112,16 +3157,18 @@ my $options = GetOptions(
 	 "i"      => \$case_insensitive,
 	 "nr"     => \$norelabel_dbo,
 	 "num"    => \$convert_numeric_to_int,
-	 "drop_rowversion"         => \$drop_rowversion,
-	 "relabel_schemas=s"       => \$relabel_schemas,
-	 "keep_identifier_case"    => \$keep_identifier_case,
-	 "camel_to_snake"          => \$camel_to_snake,
-	 "validate_constraints=s"  => \$validate_constraints,
-	 "sort_size=i"             => \$sort_size,
-	 "use_pk_if_possible=s"    => \$use_pk_if_possible,
-	 "ignore_errors"           => \$ignore_errors,
-	 "pforce_ssl"	           => \$pforce_ssl,
-	 "stringtype_unspecified"  => \$stringtype_unspecified
+	 "drop_rowversion"          => \$drop_rowversion,
+	 "relabel_schemas=s"        => \$relabel_schemas,
+	 "keep_identifier_case"     => \$keep_identifier_case,
+	 "camel_to_snake"           => \$camel_to_snake,
+	 "validate_constraints=s"   => \$validate_constraints,
+	 "sort_size=i"              => \$sort_size,
+	 "use_pk_if_possible=s"     => \$use_pk_if_possible,
+	 "ignore_errors"            => \$ignore_errors,
+	 "pforce_ssl"	            => \$pforce_ssl,
+	 "stringtype_unspecified"   => \$stringtype_unspecified,
+	 "skip_citext_length_check" => \$skip_citext_length_check,
+	 "use_identity_column"      => \$use_identity_column
 );
 
 # We don't understand command line or have been asked for usage
