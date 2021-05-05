@@ -521,7 +521,10 @@ sub convert_transact_function
    $code =~ s/ISNULL\s*\(/COALESCE(/gi;
    $code =~ s/getdate\s*\(\)/CURRENT_TIMESTAMP/gi;
    $code =~ s/user_name\s*\(\)/CURRENT_USER/gi;
+   $code =~ s/SPACE\s*\(/REPEAT(' ', /gi;
+   $code =~ s/charindex\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/dPOSITION('$1' in $2)/gi;
    $code =~ s/datepart\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/date_part('$1', $2)/gi;
+   $code =~ s/DATEADD\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\,\s*(.*?)\s*\)/$3 + INTERVAL '$2 $1'/gi;
    $code =~ s/CONVERT\s*\(\s*NVARCHAR\s*(.*?)\s*\(\s*(.*?)\s*\s*\)\,\s*(.*?)\s*\)/CAST($3 AS varchar($2))/gi;
    $code =~ s/CONVERT\s*\(\s*(.*?)\s*\(\s*(.*?)\s*\s*\)\,\s*(.*?)\s*\)/CAST($3 AS $1($2))/gi;
    $code =~ s/CONVERT\s*\(\s*(.*?)\s*\,\s*(.*?)\s*\)/CAST($2 AS $1)/gi;
@@ -1739,9 +1742,8 @@ sub parse_dump
                     # We get rid of dbo. schemas
                     $sql =~ s/(dbo)\./relabel_schemas($1) . '.'/eg
                         ;    # We put this in the replacement schema
-		    # print STDERR "code view: ".$sql."\n";
 		    # parse the query view
-		    if ( $sql =~ /^\s*\(([^\)]+)\)\s*AS\s+SELECT\s+(.*)\s+FROM\s+(.*)$/i) {
+		    if ( $sql =~ m/^\s*\(([^\)]+)\)\s*AS\s+SELECT\s+(.*)\s+FROM\s+(.*)$/is) {
 		       my $view_columns = $1;
 		       my $query_columns = $2;
 		       my $query_end = $3;
