@@ -1743,7 +1743,7 @@ sub parse_dump
                     $sql =~ s/(dbo)\./relabel_schemas($1) . '.'/eg
                         ;    # We put this in the replacement schema
 		    # parse the query view
-		    if ( $sql =~ /^\s*\(([^\)]+)\)\s*AS\s+SELECT\s+(.*)\s+FROM\s+(.*)$/i) {
+		    if ( $sql =~ m/^\s*\(([^\)]+)\)\s*AS\s+SELECT\s+(.*)\s+FROM\s+(.*)$/is) {
 		       my $view_columns = $1;
 		       my $query_columns = $2;
 		       my $query_end = $3;
