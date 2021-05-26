@@ -2162,6 +2162,10 @@ sub parse_dump
                 {
                     $constraint->{ON_UPD_CASC} = 1;
                 }
+                elsif ($fk =~ /^ON UPDATE SET NULL\s*$/)
+                {
+                    $constraint->{ON_UPD_SET_NULL} = 1;
+                }
                 elsif ($fk =~ /^NOT FOR REPLICATION\s*$/)
                 {
                   next; # We don't care for this, it has no meaning for PostgreSQL
@@ -2816,6 +2820,11 @@ sub generate_schema
                         and $constraint->{ON_UPD_CASC})
                     {
                         $consdef .= " ON UPDATE CASCADE";
+                    }
+                    if (defined $constraint->{ON_UPD_SET_NULL}
+                        and $constraint->{ON_UPD_SET_NULL})
+                    {
+                        $consdef .= " ON UPDATE SET NULL";
                     }
                     # We need a name on the constraint to be able to validate it later. Maybe it would be better to generate one
                     # FIXME: we'll see later if a generator is needed (probably)
