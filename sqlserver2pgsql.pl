@@ -1270,7 +1270,8 @@ sub generate_kettle
         my ($fd) = @_;
         my $line = <$fd>;
         return undef if (not defined $line);
-        $line =~ s/\r//g;    # Remove \r from windows output
+        $line =~ s/^\x{FEFF}//;  # Remove UTF-8 BOM
+        $line =~ s/\r//g;        # Remove \r from windows output
         $line =~
             s/EXEC(ute)?\s*(dbo|sys)\.sp_executesql( \@statement =)? N'//i
             ; # Remove executesql… it's a bit weird in the SQL Server's dump
