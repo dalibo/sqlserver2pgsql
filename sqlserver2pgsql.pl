@@ -36,12 +36,12 @@ our $case_insensitive;  # Passed as arg: was SQL Server installation case insens
 our $norelabel_dbo;     # Passed as arg: should we convert DBO to public ?
 our $relabel_schemas;
 our $convert_numeric_to_int; # Should we convert numerics to int when possible ? (numeric (4,0) could be converted an int, for instance)
-our $drop_rowversion; # Should we remove MSSQL timestamp/rowversion columns when converting
+our $drop_rowversion;   # Should we remove MSSQL timestamp/rowversion columns when converting
 our $kettle;
 our $before_file;
 our $after_file;
 our $unsure_file;
-our $case_treatment=1; # 1=convert to lowercase, 2=convert to snake_case, 0 do nothing
+our $case_treatment;    # 0 do nothing, 1 = convert to lowercase (the default), 2 = convert to snake_case
 our $ignore_errors;
 our $keep_identifier_case;
 our $camel_to_snake;
@@ -149,8 +149,8 @@ sub set_default_conf_values
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
     $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
     $drop_rowversion=0 unless (defined ($drop_rowversion));
-    $case_treatment=0 if (defined ($keep_identifier_case));
-    $case_treatment=2 if (defined ($camel_to_snake));
+    $keep_identifier_case=0 unless (defined ($keep_identifier_case));
+    $camel_to_snake=0 unless (defined ($camel_to_snake));
     $parallelism_in=1 unless (defined ($parallelism_in));# the jdbc driver often errors when there are several sessions to sql server
     $parallelism_out=8 unless (defined ($parallelism_out));
     $sort_size=10000 unless (defined ($sort_size));
@@ -164,6 +164,14 @@ sub set_default_conf_values
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
     $skip_citext_length_check=0 unless (defined ($skip_citext_length_check));
     $use_identity_column=0 unless (defined ($use_identity_column));
+
+    # Compute the case_treatment flag
+    $case_treatment = 1;
+    $case_treatment = 0 if ($keep_identifier_case);
+    $case_treatment = 2 if ($camel_to_snake);
+    if ($keep_identifier_case && $camel_to_snake) {
+        die "keep_identifier_case and camel_to_snake parameters cannot be both set to 1.\n";
+    }
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
