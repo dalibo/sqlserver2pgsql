@@ -142,6 +142,7 @@ sub parse_conf_file
     close CONF;
 }
 
+# Set the default value for all parameters not set either in the configuration file or in the command line.
 sub set_default_conf_values
 {
     # Hard coded default values, set only if not passed or found in configuration
@@ -164,13 +165,46 @@ sub set_default_conf_values
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
     $skip_citext_length_check=0 unless (defined ($skip_citext_length_check));
     $use_identity_column=0 unless (defined ($use_identity_column));
+}
+
+# Process and check the parameters.
+sub process_check_parameters
+{
+    # We have no before, after, or unsure file
+    if (not $before_file or not $after_file or not $unsure_file or not $filename) {
+        usage();
+        exit 1;
+    }
+
+    if ($validate_constraints !~ '^(yes|after|no)$') {
+        die "'validate_constraints' should be either yes, after or no (default yes)\n";
+    }
+
+    # We have been asked for kettle, but the compulsory parameters are not there
+    if ($kettle
+        and (   not $sd
+             or not $sh
+             or not $sp
+             or not $su
+             or not defined($sw) # password can be empty, it just has to be defined
+             or not $pd
+             or not $ph
+             or not $pp
+             or not $pu
+             or not defined($pw) # password can be empty, it just has to be defined
+	        )) {
+        usage();
+        print
+            "You have to provide all connection information, if using -k or kettle directory set in configuration file\n";
+        exit 1;
+    }
 
     # Compute the case_treatment flag
     $case_treatment = 1;
     $case_treatment = 0 if ($keep_identifier_case);
     $case_treatment = 2 if ($camel_to_snake);
     if ($keep_identifier_case && $camel_to_snake) {
-        die "keep_identifier_case and camel_to_snake parameters cannot be both set to 1.\n";
+        die "'keep_identifier_case' and 'camel_to_snake parameters' cannot be both set to 1.\n";
     }
 }
 
@@ -3208,45 +3242,11 @@ if ($conf_file)
 # Set default values for anything not set yet
 set_default_conf_values();
 
-# We have no before, after, or unsure
-if (   not $before_file
-    or not $after_file
-    or not $unsure_file
-    or not $filename)
-{
-    usage();
-    exit 1;
-}
-
-if ($validate_constraints !~ '^(yes|after|no)$')
-{
-    croak "validate_constraints should be yes, after or no (default yes)\n";
-}
-
-# We have been asked for kettle, but the compulsory parameters are not there
-if ($kettle
-    and (   not $sd
-         or not $sh
-         or not $sp
-         or not $su
-         or not defined($sw) # password can be empty, it just has to be defined
-         or not $pd
-         or not $ph
-         or not $pp
-         or not $pu
-         or not defined($pw) # password can be empty, it just has to be defined
-	)
-)
-{
-    usage();
-    print
-        "You have to provide all connection information, if using -k or kettle directory set in configuration file\n";
-    exit 1;
-}
+# Perform checks on parameters
+process_check_parameters();
 
 # We need to build %relabel_schemas from $relabel_schemas
 build_relabel_schemas();
-
 
 # Read SQL Server's dump file
 parse_dump();
