@@ -41,6 +41,9 @@ our $kettle;
 our $before_file;
 our $after_file;
 our $unsure_file;
+our $col_map_file;
+our $col_map_file_header;
+our $col_map_file_delimiter;
 our $case_treatment;    # 0 do nothing, 1 = convert to lowercase (the default), 2 = convert to snake_case
 our $ignore_errors;
 our $keep_identifier_case;
@@ -99,11 +102,14 @@ sub parse_conf_file
       'sql server dump filename' => 'filename',
       'case insensitive'         => 'case_insensitive',
       'no relabel dbo'           => 'norelabel_dbo',
-      'convert numeric to int'   => 'convert_numeric_to_int',
-      'drop rowversion'          => 'drop_rowversion',
       'relabel schemas'          => 'relabel_schemas',
       'keep identifier case'     => 'keep_identifier_case',
       'camelcasetosnake'         => 'camel_to_snake',
+      'col map file'             => 'col_map_file',
+      'col map file header'      => 'col_map_file_header',
+      'col map file delimiter'   => 'col_map_file_delimiter',
+      'convert numeric to int'   => 'convert_numeric_to_int',
+      'drop rowversion'          => 'drop_rowversion',
       'validate constraints'     => 'validate_constraints',
       'sort size'                => 'sort_size',
       'use pk if possible'       => 'use_pk_if_possible',
@@ -145,22 +151,23 @@ sub parse_conf_file
 # Set the default value for all parameters not set either in the configuration file or in the command line.
 sub set_default_conf_values
 {
-    # Hard coded default values, set only if not passed or found in configuration
     $case_insensitive=0 unless (defined ($case_insensitive));
     $norelabel_dbo=0 unless (defined ($norelabel_dbo));
-    $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
-    $drop_rowversion=0 unless (defined ($drop_rowversion));
     $keep_identifier_case=0 unless (defined ($keep_identifier_case));
     $camel_to_snake=0 unless (defined ($camel_to_snake));
-    $parallelism_in=1 unless (defined ($parallelism_in));# the jdbc driver often errors when there are several sessions to sql server
+    $col_map_file = "" unless (defined($col_map_file));
+    $col_map_file_header = 0 unless (defined($col_map_file_header));
+    $col_map_file_delimiter = '\t' unless (defined($col_map_file_delimiter));
+    $convert_numeric_to_int=0 unless (defined ($convert_numeric_to_int));
+    $drop_rowversion=0 unless (defined ($drop_rowversion));
+    $parallelism_in=1 unless (defined ($parallelism_in));    # the jdbc driver often errors when there are several sessions to sql server
     $parallelism_out=8 unless (defined ($parallelism_out));
     $sort_size=10000 unless (defined ($sort_size));
     $use_pk_if_possible=0 unless (defined ($use_pk_if_possible));
     $validate_constraints='yes' unless (defined ($validate_constraints));
     $ignore_errors=0 unless (defined ($ignore_errors));
-    # Default ports for PostgreSQL and SQL Server
-    $pp=5432 unless (defined ($pp));
-    $sp=1433 unless (defined ($sp));
+    $pp=5432 unless (defined ($pp));                         # Default port for PostgreSQL
+    $sp=1433 unless (defined ($sp));                         # Default port for SQL-Server
     $pforce_ssl=0 unless (defined ($pforce_ssl));
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
     $skip_citext_length_check=0 unless (defined ($skip_citext_length_check));
@@ -206,6 +213,11 @@ sub process_check_parameters
     if ($keep_identifier_case && $camel_to_snake) {
         die "'keep_identifier_case' and 'camel_to_snake parameters' cannot be both set to 1.\n";
     }
+
+    # In $col_map_file_delimiter, replace \t, \n and \r by the real equivalent characters
+    $col_map_file_delimiter =~ s/\\t/\t/g;
+    $col_map_file_delimiter =~ s/\\n/\n/g;
+    $col_map_file_delimiter =~ s/\\r/\r/g;
 }
 
 # Converts numeric(4,0) and similar to int, bigint, smallint
@@ -779,7 +791,7 @@ sub usage
 {
     print qq{
 Usage: 
-    sqlserver2pgsql.pl -b BEFORE_FILE -a AFTER_FILE -u UNSURE_FILE -f SQLSERVER_SCHEMA_FILE
+    sqlserver2pgsql.pl -f SQLSERVER_SCHEMA_FILE -b BEFORE_FILE -a AFTER_FILE -u UNSURE_FILE ... OPTIONS
 
 Description:
 
@@ -790,11 +802,11 @@ Description:
     Optionnaly, using the '-k' option, it will generate a kettle job to 
     transfer all data.
 
-Mandatory options:
+Mandatory parameters:
 
   SQL Server schema input file:
     -f SQLSERVER_SCHEMA_FILE
-            a readable SQL Server SQL structure dump.
+            a readable SQL-Server SQL structure dump.
 
   PostgreSQL output schema files:
     -b BEFORE_SCRIPT
@@ -805,18 +817,13 @@ Mandatory options:
             contains objects we attempt to migrate, but cannot guarantee, such 
             as views or complex indexes.
 
-Options:
+Other options:
 
     -conf CONFIGURATION_FILE
             uses a configuration file. All options can be set there. Command 
             line options will overwrite conf options.
-    -i      the resulting PostgreSQL names will be case-insensitive.
     -nr     the SQL Server 'dbo' schema will not be translated to PostgreSQL 
             'public' schema. 'dbo' will stay 'dbo'.
-    -camel_to_snake
-            all object names are converted from 'camelCase' to 'camel_case', 
-            which is more often used in PostgreSQL. Do not use this unless you
-            are ready to do SQL query changes in the client.
     -relabel_schemas 'SOURCE1=>DEST1;SOURCE2=>DEST2'
             gives a list of schemas to rename. Quote this option to prevent the
             shell to alter it. The '-nr' option cancels the default 'dbo' to
@@ -824,6 +831,17 @@ Options:
     -keep_identifier_case
             keep the case of SQL server database objects. This option is not
             advised. Default is to lowercase everything.
+    -camel_to_snake
+            all object names are converted from 'camelCase' to 'camel_case', 
+            which is more often used in PostgreSQL. Do not use this unless you
+            are ready to do SQL query changes in the client.
+    -col_map_file
+            optional text file with old and new schema, table and column names
+    -col_map_file_header
+            add a header line to the col_map_file
+    -col_map_file_delimiter
+            the field delimiter used in the col_map_file (TAB by default)
+    -i      the resulting PostgreSQL names will be case-insensitive.
     -num    convert numeric 'xxx,0' to int, bigint, etc. Will not keep numeric
             scale and precision for the converted.
     -drop_rowversion (Default 0)
@@ -2530,6 +2548,11 @@ sub generate_schema
     open BEFORE, ">:utf8", $before_file or die "Cannot open $before_file, $!";
     open AFTER,  ">:utf8", $after_file  or die "Cannot open $after_file, $!";
     open UNSURE, ">:utf8", $unsure_file or die "Cannot open $unsure_file, $!";
+    if ($col_map_file)
+    {
+	    open NAMEMAP, ">:utf8", $col_map_file or die "Cannot open $col_map_file, $!";
+    }
+
     print BEFORE "\\set ON_ERROR_STOP\n";
     print BEFORE "\\set ECHO all\n";
     print BEFORE "BEGIN;\n";
@@ -2539,6 +2562,15 @@ sub generate_schema
     print UNSURE "\\set ON_ERROR_STOP\n";
     print AFTER "\\set ECHO all\n";
     print UNSURE "BEGIN;\n";
+    if ($col_map_file && $col_map_file_header)
+    {
+        print NAMEMAP "Source_schema" . $col_map_file_delimiter .
+                      "Source_table" . $col_map_file_delimiter .
+                      "Source_column" . $col_map_file_delimiter .
+                      "Schema" . $col_map_file_delimiter .
+                      "Table" . $col_map_file_delimiter .
+                      "Column\n";
+    }
 
     # Are we case insensitive ? We have to install citext then
     # Won't work on pre-9.1 database. But as this is a migration tool
@@ -2610,6 +2642,8 @@ sub generate_schema
         # The tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
+            my $origschema = $refschema->{TABLES}->{$table}->{origschema};
+            my $newtablename = format_identifier($table);
             my @colsdef;
             foreach my $col (
                 sort {
@@ -2620,14 +2654,20 @@ sub generate_schema
 
             {
                 my $colref = $refschema->{TABLES}->{$table}->{COLS}->{$col};
-                my $coldef = format_identifier($col) . " " . $colref->{TYPE};
+                my $newcolname = format_identifier($col);
+                my $coldef = $newcolname . " " . $colref->{TYPE};
                 if ($colref->{NOT_NULL})
                 {
                     $coldef .= ' NOT NULL';
                 }
                 push @colsdef, ($coldef);
+                if ($col_map_file)
+                {
+                    print NAMEMAP $origschema . $col_map_file_delimiter . $table . $col_map_file_delimiter . $col . $col_map_file_delimiter
+                                . $schema . $col_map_file_delimiter . $newtablename . $col_map_file_delimiter . $newcolname . "\n";
+                }
             }
-            print BEFORE "CREATE TABLE " . format_identifier($schema) . '.' . format_identifier($table) . "( \n\t"
+            print BEFORE "CREATE TABLE " . format_identifier($schema) . '.' . $newtablename . "( \n\t"
                 . join(",\n\t", @colsdef)
                 . ");\n\n";
         }
@@ -3084,6 +3124,7 @@ sub generate_schema
     close BEFORE;
     close AFTER;
     close UNSURE;
+    close NAMEMAP if ($col_map_file);
 
 }
 
@@ -3211,6 +3252,9 @@ my $options = GetOptions(
 	 "i"      => \$case_insensitive,
 	 "nr"     => \$norelabel_dbo,
 	 "num"    => \$convert_numeric_to_int,
+     "col_map_file=s"           => \$col_map_file,
+     "col_map_file_header"      => \$col_map_file_header,
+     "col_map_file_delimiter=s" => \$col_map_file_delimiter,
 	 "drop_rowversion"          => \$drop_rowversion,
 	 "relabel_schemas=s"        => \$relabel_schemas,
 	 "keep_identifier_case"     => \$keep_identifier_case,

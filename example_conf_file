@@ -26,6 +26,9 @@ kettle directory         = /tmp/kettle        # comment this line if you don't w
 #convert numeric to int   = 1     # set it to 0 to keep numeric(xx,0) types as numeric(xx,0); they will be converted to smallint, int or bigint by default
 #keep identifier case     = 0     # set it to 1 to keep the case of database objects; by default identifier names are converted to lowercase
 #camelcasetosnake         = 0     # set it to 1 to convert identifiers from camelCase to snake_case; keep identifier case and camelcasetosnake cannot be both set to 1
+#col map file             = /tmp/map           # text file with SQL-Server and PostgreSQL schemas, tables and columns names
+#col map file header      = 0     # set if to 1 to add a header line to the col map file
+#col map file delimiter   = \t    # the fields delimiter in the col map file (TAB by default)
 #validate constraints     = yes   # should the constraints be validated by the DDL scripts ? 'yes' = validated at constraint creation,
                                   #   'no' = kept NOT VALID, 'after' = validated after the data load; 'yes' by default
 #use identity column      = 1     # set it to 0 to create an explicite SEQUENCE for identity columns (the old technic); by default,

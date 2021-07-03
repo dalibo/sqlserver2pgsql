@@ -98,7 +98,13 @@ so the scale is often not important.
 
 `-keep_identifier_case`: don't convert the dump to all lower case. This is not recommended, as you'll have to put every identifier (column, table…) in double quotes…
 
-`-camel_to_snake`: convert the object name (table, column, index...) from CamelCase to snake_case. Only do this if you are willing to change all your queries (or you use an ORM for instance)
+`-camel_to_snake`: convert the object name (table, column, index...) from CamelCase to snake_case. Only do this if you are willing to change all your queries (or you use an ORM for instance).
+
+`-col_map_file`: specifies an output text file containing SQL-Server and PostgreSQL schemas, tables and columns names (1 line per column).
+
+`-col_map_file_header`: add a header line to the col_map_file (no header by default).
+
+`-col_map_file_delimiter`: specify a field delimiter for the col_map_file (TAB by default).
 
 `-validate_constraints=yes/after/no`: for foreign keys, if yes: foreign keys are created as valid in the after script (default)
                                                       if no: they are created as not valid (enforced only for new rows)
