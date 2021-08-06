@@ -567,6 +567,18 @@ sub format_identifier_cols_index
     return $formatted . ' ' . $order;
 }
 
+# This sub returns FALSE and prints a warning message when the length of a provided constraint name is greater than 63.
+sub is_constraint_name_valid
+{
+	my ($name) = @_;
+	if (length($name) > 63)
+	{
+		print STDERR "Warning: because of its length, the constraint name $name is ignored and will be set by Postgres at execution time.\n";
+		return 0;
+	}
+	return 1;
+}
+
 # This one will try to convert what can obviously be converted from transact to PG
 # Things such as getdate() which can become CURRENT_TIMESTAMP
 sub convert_transact_function
@@ -2753,7 +2765,7 @@ sub generate_schema
                 next;
             }
             my $pkdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
-            if (defined $refpk->{NAME})
+            if (defined $refpk->{NAME} and is_constraint_name_valid($refpk->{NAME}))
             {
                 $pkdef .= " CONSTRAINT " . format_identifier($refpk->{NAME});
             }
@@ -2775,7 +2787,7 @@ sub generate_schema
             {
                 next unless ($constraint->{TYPE} eq 'UNIQUE');
                 my $consdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
-                if (defined $constraint->{NAME})
+                if (defined $constraint->{NAME} and is_constraint_name_valid($constraint->{NAME}))
                 {
                     $consdef .= " CONSTRAINT " . format_identifier($constraint->{NAME});
                 }
@@ -2872,12 +2884,11 @@ sub generate_schema
             {
                 next if ($constraint->{TYPE} =~ /^UNIQUE|PK$/);
                 my $consdef = "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " ADD";
-                if (defined $constraint->{NAME})
+                if (defined $constraint->{NAME} and is_constraint_name_valid($constraint->{NAME}))
                 {
                     $consdef .= " CONSTRAINT " . format_identifier($constraint->{NAME});
                 }
-                if ($constraint->{TYPE} eq
-                    'FK')    # COLS are already a comma separated list
+                if ($constraint->{TYPE} eq 'FK')    # COLS are already a comma separated list
                 {
                     # We need to convert the column list to protected names
                     my @localcollist=map{format_identifier($_)} @{$constraint->{LOCAL_COLS}};
@@ -2911,23 +2922,22 @@ sub generate_schema
                     }
                     # We need a name on the constraint to be able to validate it later. Maybe it would be better to generate one
                     # FIXME: we'll see later if a generator is needed (probably)
-                    if ($constraint->{TYPE} eq 'FK' and ($validate_constraints =~ /^after|no$/) and defined($constraint->{NAME}))
+                    if (($validate_constraints =~ /^after|no$/) and defined($constraint->{NAME}) and is_constraint_name_valid($constraint->{NAME}))
                     {
                         $consdef .= " NOT VALID";
                     }
                     $consdef .= ";\n";
                     print AFTER $consdef;
-                    if ($constraint->{TYPE} eq 'FK' and $validate_constraints eq 'after' and defined $constraint->{NAME})
+                    if ($validate_constraints eq 'after' and defined $constraint->{NAME} and is_constraint_name_valid($constraint->{NAME}))
                     {
                         print UNSURE "ALTER TABLE " . format_identifier($schema) . '.' . format_identifier($table) . " VALIDATE CONSTRAINT " . format_identifier($constraint->{NAME}) . ";\n";
                     }
                 }
                 elsif ($constraint->{TYPE} eq 'CHECK')
-		{
-		   $consdef .= " CHECK (" . convert_transactsql_code($constraint->{TEXT}) . ");\n";
-		   print UNSURE $consdef
-		      ;    # Check constraints are SQL, so cannot be sure
-		}
+					{
+					$consdef .= " CHECK (" . convert_transactsql_code($constraint->{TEXT}) . ");\n";
+					print UNSURE $consdef;    # Check constraints are SQL, so cannot be sure
+					}
                 elsif ($constraint->{TYPE} eq 'CHECK_CITEXT')
                 {
                     # These have been generated here, for citext mostly. So we know their syntax is ok
@@ -3182,7 +3192,6 @@ sub resolve_name_conflicts
                 }
                 $known_names{format_identifier($domain."2pgd")}=1;
             }
-
         }
 
         # Then we scan all indexes
