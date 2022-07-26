@@ -2313,7 +2313,7 @@ sub parse_dump
                 # I hope it will be sufficient (won't be if someone decides to end a comment with a quote)
 
                 unless ($sqlproperty =~
-                    /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*,\s*\@value=N'(.*)'\s*,\s*\@level0type=N'(.*?)'\s*,\s*\@level0name=N'(.*?)'\s*(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s)
+                    /^EXEC sys.sp_addextendedproperty \@name=N'(.*?)'\s*(?:,\s*\@value=N'(.*?)'\s*)?(?:,\s*\@level0type=N'(.*?)'\s*)?(?:,\s*\@level0name=N'(.*?)'\s*)?(?:,\s*\@level1type=N'(.*?)'\s*,\s*\@level1name=N'(.*?)')?\s*?(?:,\s*\@level2type=N'(.*?)'\s*,\s*\@level2name=N'(.*?)')?/s)
                 {
                     # Not parsing a comment should not stop
                     print STDERR "Could not parse <$sqlproperty>. Ignored.\n";
@@ -2322,7 +2322,11 @@ sub parse_dump
                 my ($comment, $schema, $obj, $objname, $subobj, $subobjname)
                     = ($2, $4, $5, $6, $7, $8);
                 $schema=relabel_schemas($schema);
-                if ($obj eq 'TABLE' and not defined $subobj)
+                if (not defined $obj)
+                {
+                   $objects->{SCHEMAS}->{$schema}->{COMMENT} = $comment;
+                }
+                elsif ($obj eq 'TABLE' and not defined $subobj)
                 {
                     $objects->{SCHEMAS}->{$schema}->{TABLES}->{$objname}->{COMMENT} =
                         $comment;
@@ -3040,6 +3044,13 @@ sub generate_schema
     # Comments on tables and columns
     while (my ($schema, $refschema) = each %{$objects->{SCHEMAS}})
     {
+        # Comments on schemas
+        if (defined($refschema->{COMMENT}))
+        {
+            print AFTER "COMMENT ON SCHEMA " . format_identifier($schema) . " IS '"
+                . $refschema->{COMMENT} . "';\n";
+        }
+
         # Comments on tables
         foreach my $table (sort keys %{$refschema->{TABLES}})
         {
