@@ -53,6 +53,7 @@ our $parallelism_in;
 our $parallelism_out;
 our $sort_size;
 our $use_pk_if_possible;
+our $sforce_ssl;
 our $pforce_ssl;
 our $stringtype_unspecified;
 our $skip_citext_length_check;
@@ -114,6 +115,7 @@ sub parse_conf_file
       'sort size'                => 'sort_size',
       'use pk if possible'       => 'use_pk_if_possible',
       'ignore errors'            => 'ignore_errors',
+      'sql server force ssl'     => 'sforce_ssl',
       'postgresql force ssl'     => 'pforce_ssl',
       'stringtype unspecified'   => 'stringtype_unspecified',
       'skip citext length check' => 'skip_citext_length_check',
@@ -168,6 +170,7 @@ sub set_default_conf_values
     $ignore_errors=0 unless (defined ($ignore_errors));
     $pp=5432 unless (defined ($pp));                         # Default port for PostgreSQL
     $sp=1433 unless (defined ($sp));                         # Default port for SQL-Server
+    $sforce_ssl=0 unless (defined ($sforce_ssl));
     $pforce_ssl=0 unless (defined ($pforce_ssl));
     $stringtype_unspecified=0 unless (defined ($stringtype_unspecified));
     $skip_citext_length_check=0 unless (defined ($skip_citext_length_check));
@@ -894,6 +897,8 @@ Other options:
             parallelism level for the kettle job (input, SQL Server). Default 1.
     -po PARALLELISM_OUT
             parallelism level for the kettle job (output, PostgreSQL). Default 8.
+    -sforce_ssl
+            force a SSL session to SQL Server
     -pforce_ssl
             force a SSL session to PostgreSQL
     -stringtype_unspecified
@@ -1029,6 +1034,14 @@ sub generate_kettle
                 $newtemplate =~ s/<use_batch>Y<\/use_batch>/<use_batch>N<\/use_batch>/g; # Cannot use batch mode with ignore errors
             }
 
+            if ($sforce_ssl)
+            {
+                    $newtemplate =~ s/__sforce_ssl__/<attribute><code>EXTRA_OPTION_MSSQL.ssl<\/code><attribute>require<\/attribute><\/attribute>/g;
+            }
+            else
+            {
+                    $newtemplate =~ s/__sforce_ssl__//g;
+            }
             if ($pforce_ssl)
             {
                     $newtemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
@@ -1066,6 +1079,14 @@ sub generate_kettle
             $newincrementaltemplate =~ s/__PARALLELISM_OUT__/$parallelism_out/g;
             $newincrementaltemplate =~ s/__sort_size__/$sort_size/g;
 
+            if ($sforce_ssl)
+            {
+                    $newincrementaltemplate =~ s/__sforce_ssl__/<attribute><code>EXTRA_OPTION_MSSQL.ssl<\/code><attribute>require<\/attribute><\/attribute>/g;
+            }
+            else
+            {
+                    $newincrementaltemplate =~ s/__sforce_ssl__//g;
+            }
             if ($pforce_ssl)
             {
                     $newincrementaltemplate =~ s/__pforce_ssl__/<attribute><code>EXTRA_OPTION_POSTGRESQL.ssl<\/code><attribute>true<\/attribute><\/attribute>\n<attribute><code>EXTRA_OPTION_POSTGRESQL.sslfactory<\/code><attribute>org.postgresql.ssl.NonValidatingFactory<\/attribute><\/attribute>/g;
@@ -3283,6 +3304,7 @@ my $options = GetOptions(
 	 "sort_size=i"              => \$sort_size,
 	 "use_pk_if_possible=s"     => \$use_pk_if_possible,
 	 "ignore_errors"            => \$ignore_errors,
+	 "sforce_ssl"	            => \$sforce_ssl,
 	 "pforce_ssl"	            => \$pforce_ssl,
 	 "stringtype_unspecified"   => \$stringtype_unspecified,
 	 "skip_citext_length_check" => \$skip_citext_length_check,
@@ -3420,6 +3442,7 @@ BEGIN
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      __sforce_ssl__
       <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
@@ -3782,6 +3805,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      __sforce_ssl__
       <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
@@ -4351,6 +4375,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      __sforce_ssl__
       <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
@@ -4781,6 +4806,7 @@ EOF
     <data_tablespace/>
     <index_tablespace/>
     <attributes>
+      __sforce_ssl__
       <attribute><code>EXTRA_OPTION_MSSQL.instance</code><attribute>__sqlserver_instance__</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_LOWERCASE</code><attribute>N</attribute></attribute>
       <attribute><code>FORCE_IDENTIFIERS_TO_UPPERCASE</code><attribute>N</attribute></attribute>
