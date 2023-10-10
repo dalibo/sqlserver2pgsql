@@ -124,24 +124,41 @@ one for each table to copy, plus the one for the job)
 
 You'll also need to specify the connection parameters. They will be stored inside the kettle files (in
 cleartext, so don't make this directory public):
+
 `-sd` : sql server database
+
 `-sh` : sql server host
+
 `-si` : sql server host instance
+
 `-sp` : sql server port (usually 1433)
+
 `-su` : sql server username
+
 `-sw` : sql server password
+
 `-pd` : postgresql database
+
 `-ph` : postgresql host
+
 `-pp` : postgresql port
+
 `-pu` : postgresql username
+
 `-pw` : postgresql password
+
 `-sforce_ssl` : force a SSL connection to your SQL Server database. Required if ForceEncryption option is set to 'Yes'
+
 `-pforce_ssl` : force a SSL connection to your PostgreSQL database. ssl=on should be set on the PostgreSQL server
+
 `-f`  : the SQL Server structure dump file
--ignore_errors : ignore insert errors (not advised, you'll need to examine kettle's logs, and it will be slower)
+
+`-ignore_errors` : ignore insert errors (not advised, you'll need to examine kettle's logs, and it will be slower)
 
 `-pi`  : The parallelism used in kettle jobs to read from SQL Server (1 by default, the jdbc driver frequently errors out when larger)
+
 `-po`  : The parallelism used in kettle jobs to write to PostgresSQL: there will be this amount of sessions used to insert into PostgreSQL. Default to 8
+
 `-sort_size=100000`: sort size to use for incremental jobs. Default is 10000, to try to be on the safe side (see below).
 
 We don't sort in databases for two reasons: the sort order (collation for strings for example) can be different between SQL Server
